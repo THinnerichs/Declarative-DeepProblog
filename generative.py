@@ -45,26 +45,28 @@ model.freeze()
 latent = LatentSource()
 model.add_tensor_source('latent', latent)
 
-optim = torch.optim.Adam(latent.data.parameters(), lr=1e-2)
+optim = torch.optim.Adam(latent.data.parameters(), lr=1e-3)
 # mnist_test = MNIST('mnist_test')
 
 engine = ExactEngine(model)
 
-query = Query(Term('addition', Var('X'), Var('Y'), Constant(8)))
+query = Query(Term('digit', Var('X'), Constant(2)))
+# query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(0))), Var('Y'), Constant(8)))
 ac = engine.query(query)
-for i in range(1001):
+for i in range(10001):
     results = ac.evaluate(model)
     key = max(results, key = lambda x: results[x])
     # for key in results:
-    tensor1_term, tensor2_term, label = key.args
+    tensor1_term, label = key.args
+    # tensor1_term, tensor2_term, label = key.args
     probability = results[key]
     tensor1 = model.get_tensor(tensor1_term).detach()
-    tensor2 = model.get_tensor(tensor2_term).detach()
+    # tensor2 = model.get_tensor(tensor2_term).detach()
 
     loss = -torch.log(probability)
     if i % 200 == 0:
         save_image(tensor1, '{}_{}.png'.format(tensor1_term, i), value_range=(-1.0, 1.0))
-        save_image(tensor2, '{}_{}.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
+        # save_image(tensor2, '{}_{}.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
         print(key, ':', float(probability))
         print('Loss: ', loss)
     optim.zero_grad()

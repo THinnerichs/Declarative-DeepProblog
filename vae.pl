@@ -1,10 +1,11 @@
 :- use_module(library(lists)).
 :- include_dataset(mnist_test).
+:- include_dataset(mnist_train).
 :- include_network(discriminator, default(mnist_classifier)).
 :- include_network(encoder, 'vae.py', 'encoder').
 :- include_network(decoder, 'vae.py', 'decoder').
 
-latent(tensor(latent(I))) :- between(0,1,I).
+latent(tensor(latent(I))) :- between(1,1,I).
 
 addition(Img1,Img2,Sum) :- digit(Img1,D1), digit(Img2,D2), Sum is D2+D1.
 
