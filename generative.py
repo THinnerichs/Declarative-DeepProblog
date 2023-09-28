@@ -15,7 +15,7 @@ model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
 
 # model.fit(batch_size=8, stop_condition=1)
 
-# with open('model_vae.dpl', 'wb') as f:
+# with open('model_prototype.dpl', 'wb') as f:
     # pickle.dump(model, f)
 
 class LatentSource(Mapping[Term, torch.Tensor]):
@@ -39,18 +39,19 @@ class LatentSource(Mapping[Term, torch.Tensor]):
 with open('model_prototype.dpl', 'rb') as f:
     model2 = pickle.load(f)
 
-# model.networks = model2.networks
-# model.freeze()
+model.networks = model2.networks
+model.networks['discriminator'].freeze()
 # latent = LatentSource()
 # model.add_tensor_source('latent', latent)
 
-optim = torch.optim.Adam(latent.data.parameters(), lr=1e-4, weight_decay=1e-3)
+# optim = torch.optim.Adam(latent.data.parameters(), lr=1e-4, weight_decay=1e-3)
+optim = torch.optim.Adam(model.networks["gen"].parameters(), lr=1e-4, weight_decay=1e-3)
 # mnist_test = MNIST('mnist_test')
 
 engine = ExactEngine(model)
 
-# query = Query(Term('digit', Var('X'), Constant(6)))
-query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(0))), Var('Y'), Constant(8)))
+query = Query(Term('digit', Var('X'), Constant(4)))
+# query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(0))), Var('Y'), Constant(8)))
 ac = engine.query(query)
 for i in range(100001):
     results = ac.evaluate(model)
