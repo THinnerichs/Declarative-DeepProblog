@@ -5,7 +5,6 @@ import torch.nn.functional as F
 
 # From https://github.com/lyeoni/pytorch-mnist-VAE/blob/master/pytorch-mnist-VAE.ipynb
 
-
 class Encoder(nn.Module):
     def __init__(self, x_dim, h_dim1, h_dim2, z_dim):
         super(Encoder, self).__init__()

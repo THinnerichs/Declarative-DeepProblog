@@ -11,20 +11,19 @@ from deepproblog.logger import VerboseLogger
 from deepproblog.model import Model
 from deepproblog.query import Query
 
-model = Model.from_file('vae.pl', logger=VerboseLogger(1000))
+model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
 
-#
-# model.fit(batch_size=4, stop_condition=1)
+# model.fit(batch_size=8, stop_condition=1)
+
 # with open('model_vae.dpl', 'wb') as f:
-#     pickle.dump(model, f)
-
+    # pickle.dump(model, f)
 
 class LatentSource(Mapping[Term, torch.Tensor]):
 
     def __iter__(self) -> Iterator[torch.Tensor]:
         pass
 
-    def __init__(self, nr_embeddings=10, embedding_size=2) -> None:
+    def __init__(self, nr_embeddings=10, embedding_size=10) -> None:
         super().__init__()
         self.data = torch.nn.Embedding(nr_embeddings, embedding_size)
 
@@ -37,36 +36,36 @@ class LatentSource(Mapping[Term, torch.Tensor]):
         return self.data.shape
 
 
-with open('model_vae.dpl', 'rb') as f:
+with open('model_prototype.dpl', 'rb') as f:
     model2 = pickle.load(f)
 
-model.networks = model2.networks
-model.freeze()
-latent = LatentSource()
-model.add_tensor_source('latent', latent)
+# model.networks = model2.networks
+# model.freeze()
+# latent = LatentSource()
+# model.add_tensor_source('latent', latent)
 
-optim = torch.optim.Adam(latent.data.parameters(), lr=1e-3)
+optim = torch.optim.Adam(latent.data.parameters(), lr=1e-4, weight_decay=1e-3)
 # mnist_test = MNIST('mnist_test')
 
 engine = ExactEngine(model)
 
-query = Query(Term('digit', Var('X'), Constant(2)))
-# query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(0))), Var('Y'), Constant(8)))
+# query = Query(Term('digit', Var('X'), Constant(6)))
+query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(0))), Var('Y'), Constant(8)))
 ac = engine.query(query)
-for i in range(10001):
+for i in range(100001):
     results = ac.evaluate(model)
     key = max(results, key = lambda x: results[x])
     # for key in results:
-    tensor1_term, label = key.args
-    # tensor1_term, tensor2_term, label = key.args
+    # tensor1_term, label = key.args
+    tensor1_term, tensor2_term, label = key.args
     probability = results[key]
     tensor1 = model.get_tensor(tensor1_term).detach()
-    # tensor2 = model.get_tensor(tensor2_term).detach()
+    tensor2 = model.get_tensor(tensor2_term).detach()
 
     loss = -torch.log(probability)
-    if i % 200 == 0:
-        save_image(tensor1, '{}_{}.png'.format(tensor1_term, i), value_range=(-1.0, 1.0))
-        # save_image(tensor2, '{}_{}.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
+    if i % 5000 == 0:
+        save_image(tensor1, 'output/{}_{}.png'.format(tensor1_term, i), value_range=(-1.0, 1.0))
+        save_image(tensor2, 'output/{}_{}.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
         print(key, ':', float(probability))
         print('Loss: ', loss)
     optim.zero_grad()
