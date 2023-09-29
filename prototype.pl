@@ -8,27 +8,30 @@
 
 % addition(Img1,Img2,Sum) :- digit(Img1,D1), digit(Img2,D2), Sum is D2+D1.
 
+prototype(X, tensor(prototype(X))) :- between(0,9,X). % creates new latents?
+%prototype(0, tensor(prototype(0)).
+%prototype(1, tensor(prototype(1)).
+%prototype(2, tensor(prototype2)).
+%prototype(3, tensor(prototype3)).
+%prototype(4, tensor(prototype4)).
+%prototype(5, tensor(prototype5)).
+%prototype(6, tensor(prototype6)).
+%prototype(7, tensor(prototype7)).
+%prototype(8, tensor(prototype8)).
+%prototype(9, tensor(prototype9)).
 
-prototype(0, Prototype0).
-prototype(1, Prototype1).
-prototype(2, Prototype2).
-prototype(3, Prototype3).
-prototype(4, Prototype4).
-prototype(5, Prototype5).
-prototype(6, Prototype6).
-prototype(7, Prototype7).
-prototype(8, Prototype8).
-prototype(9, Prototype9).
 
-nn(discriminator,[Image],Digit,[0,1,2,3,4,5,6,7,8,9]) :: digit(Image,Digit) :- image(Image).
+P :: digit(X, Y) :- prototype(Y, Prototype), rbf(X, Prototype, P).
 
-% nn(discriminator,[Image], Digit,[0,1,2,3,4,5,6,7,8,9]) :: discriminator(Image, Digit). % Is this necessary?
-nn(gen,[Digit], Image) :: prototype(Digit, Image).
+nn(discriminator,[Image],Digit,[0,1,2,3,4,5,6,7,8,9]) :: digit(Image,Digit) :- image(Image, Digit).
 
-image(Image) :- ground(Image).
-nn(discriminator,[Image],Digit,[0,1,2,3,4,5,6,7,8,9]) :: image(Image) :- var(Image), prototype(Digit, Prototype), discriminator(Prototype, Digit).
+% nn(discriminator,[Prototype], Digit, [0,1,2,3,4,5,6,7,8,9]) :: discriminator(Prototype, Digit). % Is this necessary?
+% nn(gen,[Digit], Image) :: prototype(Digit, Prototype).
 
-% similar(X,X).
-% P :: similar(Image1, Image2) :- Image1 \= Image2, rbf(Image1, Image2, P).
+image(Image, Digit) :- ground(Image).
+image(Image, Digit) :- var(Image), prototype(Digit, Image).%, is_prototype(Prototype).
+
+similar(X,X).
+P :: similar(Image1, Image2) :- Image1 \= Image2, rbf(Image1, Image2, P).
 
 :- include_evidence('mnist.pl').
