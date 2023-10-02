@@ -36,11 +36,11 @@ if not os.path.exists(output_path):
     # If it doesn't exist, create it (including parent directories if needed)
     os.makedirs(output_path)
 
-model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
+model = Model.from_file('pick_prototype.pl', logger=VerboseLogger(1000))
 
 model.fit(batch_size=8, stop_condition=1)
 
-with open('model_prototype.dpl', 'wb') as f:
+with open('model_pick_prototype.dpl', 'wb') as f:
     pickle.dump(model, f)
 
 class LatentSource(Mapping[Term, torch.Tensor]):
@@ -55,13 +55,13 @@ class LatentSource(Mapping[Term, torch.Tensor]):
     def __getitem__(self, index: tuple[Term]) -> torch.Tensor:
         i = torch.LongTensor([int(index[0])])
         tensor = self.data(i)[0]
-        return tensor #.view(1,28,28)
+        return tensor.view(1,28,28)
 
     def __len__(self) -> int:
         return self.data.shape
 
 
-with open('model_prototype.dpl', 'rb') as f:
+with open('model_pick_prototype.dpl', 'rb') as f:
     model2 = pickle.load(f)
 
 raise Exception

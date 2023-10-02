@@ -70,7 +70,7 @@ class LossFunc(nn.Module):
     def __init__(self):
         super(Loss, self).__init__()
     
-    def forward(self, x, mu, log_var):
+    def forward(self, x, mu, log_var): 
         BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
         KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         return BCE + KLD
