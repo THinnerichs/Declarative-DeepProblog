@@ -56,13 +56,13 @@ class Decoder(nn.Module):
 
 def encoder():
     module = Encoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=10)
-    optimizer = torch.optim.Adam(module.parameters())
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-4)
     return module, optimizer
 
 
 def decoder():
     module = Decoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=10)
-    optimizer = torch.optim.Adam(module.parameters())
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-4)
     return module, optimizer
 
 

@@ -43,6 +43,12 @@ def rbf(x, y):
         y = torch.tensor(float(y))
     return torch.exp(-torch.norm(x.flatten() - y.flatten(), 2))
 
+def cos(x, y):
+    if isinstance(x, Term):
+        x = torch.tensor(float(x))
+    if isinstance(y, Term):
+        y = torch.tensor(float(y))
+    return (torch.nn.CosineSimilarity(dim=0, eps=1e-6)(x,y) + 1)/2
 
 def bce_loss(x, y):
     if isinstance(x, Term):
@@ -121,7 +127,7 @@ def stack(tensors):
 #     )
 
 
-all_builtins = {"rbf": (rbf, 2, 1), "sample_normal": (sample_normal, 2, 1), "bce_loss": (bce_loss, 2, 1)}
+all_builtins = {"rbf": (rbf, 2, 1), "cos": (cos, 2, 1), "sample_normal": (sample_normal, 2, 1), "bce_loss": (bce_loss, 2, 1)}
 
 
 def get_tensor_wrapper(name):

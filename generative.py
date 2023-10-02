@@ -36,12 +36,6 @@ if not os.path.exists(output_path):
     # If it doesn't exist, create it (including parent directories if needed)
     os.makedirs(output_path)
 
-model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
-
-model.fit(batch_size=8, stop_condition=1)
-
-with open('model_prototype.dpl', 'wb') as f:
-    pickle.dump(model, f)
 
 class LatentSource(Mapping[Term, torch.Tensor]):
 
@@ -60,24 +54,33 @@ class LatentSource(Mapping[Term, torch.Tensor]):
     def __len__(self) -> int:
         return self.data.shape
 
+model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
+latent = LatentSource(embedding_size=10)
+model.add_tensor_source('prototype', latent)
+
+# model.fit(batch_size=16, stop_condition=10)
+
+# with open('model_prototype.dpl', 'wb') as f:
+    # pickle.dump(model, f)
 
 with open('model_prototype.dpl', 'rb') as f:
     model2 = pickle.load(f)
 
-raise Exception
-
 model.networks = model2.networks
-model.networks['discriminator'].freeze()
-latent = LatentSource(embedding_size=784)
-model.add_tensor_source('prototype', latent)
+model.tensor_sources = model2.tensor_sources
+
+model.networks['encoder'].freeze()
+# latent = LatentSource(embedding_size=10)
+# model.add_tensor_source('prototype', latent)
+print(model.tensor_sources)
 
 optim = torch.optim.Adam(latent.data.parameters(), lr=1e-4, weight_decay=1e-3)
 # mnist_test = MNIST('mnist_test')
 
 engine = ExactEngine(model)
 
-# query = Query(Term('digit', Var('X'), Constant(7)))
-query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(4))), Var('Y'), Constant(8)))
+query = Query(Term('digit', Var('X'), Constant(7)))
+# query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(4))), Var('Y'), Constant(8)))
 # query = Query(Term('addition', Var('X'), Var('Y'), Constant(7)))
 ac = engine.query(query)
 for i in range(100001):
@@ -85,16 +88,16 @@ for i in range(100001):
     # print(results)
     key = max(results, key = lambda x: results[x])
     # for key in results:
-    # tensor1_term, label = key.args
-    tensor1_term, tensor2_term, label = key.args
+    tensor1_term, label = key.args
+    # tensor1_term, tensor2_term, label = key.args
     probability = results[key]
     tensor1 = model.get_tensor(tensor1_term).detach()
-    tensor2 = model.get_tensor(tensor2_term).detach()
+    # tensor2 = model.get_tensor(tensor2_term).detach()
 
     loss = -torch.log(probability)
     if i % 5000 == 0:
         save_image(tensor1, output_path + '{}_{}_term_1.png'.format(tensor1_term, i), value_range=(-1.0, 1.0))
-        save_image(tensor2, output_path + '{}_{}_term_2.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
+        # save_image(tensor2, output_path + '{}_{}_term_2.png'.format(tensor2_term, i), value_range=(-1.0, 1.0))
         print(key, ':', float(probability))
         print('Loss: ', loss)
     optim.zero_grad()

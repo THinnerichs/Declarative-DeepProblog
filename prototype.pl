@@ -12,7 +12,7 @@ addition(Img1,Img2,Sum) :- digit(Img1,D1), digit(Img2,D2), Sum is D2+D1.
 prototype(X, tensor(prototype(X))) :- between(0,9,X). 
 
 % nn(discriminator,[Image],Digit,[0,1,2,3,4,5,6,7,8,9]) :: digit(Image,Digit) :- image(Image, Digit).
-P :: digit(Image, Digit) :- image(Image, Digit), prototype(Digit, Prototype), encoder(Image, Latent), rbf(Latent, Prototype, P).
+P :: digit(Image, Digit) :- image(Image, Digit), prototype(Digit, Prototype), encoder(Image, Latent), cos(Latent, Prototype, P).
 % P :: digit(Image, Y) :- prototype(Y, Prototype), encoder(Image, Latent), rbf(Image, Prototype, P). % proposed by Robin
 
 nn(encoder, [Image], Latent) :: encoder(Image, Latent).
@@ -20,7 +20,7 @@ nn(encoder, [Image], Latent) :: encoder(Image, Latent).
 image(Image, Digit) :- ground(Image).
 image(Image, Digit) :- var(Image), prototype(Digit, Image).
 
-similar(X,X).
-P :: similar(Image1, Image2) :- Image1 \= Image2, rbf(Image1, Image2, P).
+% similar(X,X).
+% P :: similar(Image1, Image2) :- Image1 \= Image2, cos(Image1, Image2, P).
 
 :- include_evidence('mnist.pl').

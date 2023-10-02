@@ -23,6 +23,7 @@ allowed_builtin(embed(_,_)).
 allowed_builtin(max(_,_)).
 allowed_builtin(mean(_,_)).
 allowed_builtin(rbf(_,_,_)).
+allowed_builtin(cos(_,_,_)).
 allowed_builtin(add(_,_,_)).
 allowed_builtin(mul(_,_,_)).
 allowed_builtin(dot(_,_,_)).
