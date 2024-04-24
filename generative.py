@@ -88,7 +88,7 @@ model.add_tensor_source('prototype', latent)
 from deepproblog.dataset import DataLoader, QueryDataset
 from deepproblog.evaluate import get_confusion_matrix
 train_set = QueryDataset(model.get_evidence())
-print("Accuracy: ", get_confusion_matrix(model, train_set, verbose=1).accuracy())
+print("Accuracy: ", get_confusion_matrix(model, train_set, verbose=3).accuracy())
 
 raise Exception
 
@@ -97,10 +97,10 @@ raise Exception
 
 engine = ExactEngine(model)
 
-# query = Query(Term('digit', Var('X'), Constant(7)))
+query = Query(Term('digit', Var('X'), Constant(7)))
 # query = Query(Term('digit', Var('X'), Var('Y')))
 # query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(7))), Var('Y'), Constant(8)))
-query = Query(Term('addition', Var('X'), Var('Y'), Constant(7)))
+# query = Query(Term('addition', Var('X'), Var('Y'), Constant(7)))
 ac = engine.query(query)
 
 results = ac.evaluate(model)
