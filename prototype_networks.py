@@ -28,7 +28,7 @@ class Encoder(nn.Module):
         return eps.mul(std).add_(mu)  # return z sample
 
     def forward(self, x):
-        x = torch.stack(x)
+        # x = torch.stack(x)
         # mu, log_var = self.encoder(x.view(-1, 784))
         z = self.encoder(x.view(-1, 784)) # AE
         # z = self.sampling(mu, log_var) 
@@ -44,26 +44,27 @@ class Decoder(nn.Module):
         self.fc6 = nn.Linear(h_dim2, x_dim)
 
     def decoder(self, z):
-        z = torch.stack(z)
+        # z = torch.stack(z)
         h = F.relu(self.fc4(z))
         # h = F.relu(self.fc5(h))
         h = torch.tanh(self.fc6(h))
-        h = h.view(-1, 1, 28, 28)
+        # h = h.view(-1, 1, 28, 28)
+        h = h.view(-1, 28, 28)
         return h
 
     def forward(self, z):
         return self.decoder(z)
 
 
-def encoder():
-    module = Encoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=12)
-    optimizer = torch.optim.Adam(module.parameters())
+def encoder(lat_dim=12):
+    module = Encoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=lat_dim)
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-3)
     return module, optimizer
 
 
-def decoder():
-    module = Decoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=12)
-    optimizer = torch.optim.Adam(module.parameters())
+def decoder(lat_dim=12):
+    module = Decoder(x_dim=784, h_dim1=256, h_dim2=128, z_dim=lat_dim)
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-3)
     return module, optimizer
 
 

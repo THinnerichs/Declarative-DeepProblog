@@ -2,17 +2,28 @@ import pickle
 from collections.abc import Mapping
 from typing import Iterator
 
-import torch
 from problog.logic import Term, Var, Constant
 from torchvision.utils import save_image
+from json import dumps
 
-from deepproblog.engines import ExactEngine
-from deepproblog.logger import VerboseLogger
+import torch
+
+from deepproblog.dataset import DataLoader
+from deepproblog.engines import ApproximateEngine, ExactEngine
+from deepproblog.evaluate import get_confusion_matrix
+from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition
 from deepproblog.model import Model
-from deepproblog.query import Query
+from deepproblog.network import Network
+from deepproblog.train import train_model
+
 
 import argparse
 import os
+
+method = "exact"
+N = 1
+
+name = "addition_{}_{}".format(method, N)
 
 save_path = ""
 if __name__ == "__main__":
@@ -40,7 +51,7 @@ if not os.path.exists(output_path):
     # If it doesn't exist, create it (including parent directories if needed)
     os.makedirs(output_path)
 
-
+# Create LatentSource
 class LatentSource(Mapping[Term, torch.Tensor]):
 
     def __iter__(self) -> Iterator[torch.Tensor]:
@@ -53,6 +64,7 @@ class LatentSource(Mapping[Term, torch.Tensor]):
     def __getitem__(self, index: tuple[Term]) -> torch.Tensor:
         i = torch.LongTensor([int(index[0])])
         tensor = self.data(i)[0]
+        # print(f"LatentSource:\t{i}\t{tensor}")
         return tensor
 
     def __len__(self) -> int:
@@ -60,43 +72,66 @@ class LatentSource(Mapping[Term, torch.Tensor]):
 
 embed_size = 12
 
-model = Model.from_file('prototype.pl', logger=VerboseLogger(1000))
+train_set = addition(N, "train")
+test_set = addition(N, "test")
+
+from prototype_networks import encoder, decoder
+encoder_network, enc_opt = encoder()
+decoder_network, dec_opt = decoder()
+
+enc = Network(encoder_network, "encoder", batching=True)
+enc.optimizer = enc_opt
+dec = Network(decoder_network, "decoder", batching=True)
+dec.optimizer = dec_opt
+
+model = Model("models/prototype.pl", [enc, dec])
+if method == "exact":
+    engine = ExactEngine(model)
+    model.set_engine(engine, cache=False)
+elif method == "geometric_mean":
+    engine = ApproximateEngine(model, 1, ApproximateEngine.geometric_mean, exploration=False)
+    model.set_engine(engine)
+
+model.add_tensor_source("train", MNIST_train)
+model.add_tensor_source("test", MNIST_test)
+
 if pretrain:
+    epochs = 5
+    # network.load_state_dict(torch.load("models/pretrained/all_{}.pth".format(pretrain)))
     latent = LatentSource(embedding_size=embed_size)
     model.add_tensor_source('prototype', latent)
 
-    model.fit(batch_size=16, stop_condition=10)
+    loader = DataLoader(train_set, 2, False)
+    train = train_model(model, loader, epochs, log_iter=100, profile=0)
+    model.save_state("snapshot/" + name + ".pth")
+    train.logger.comment(dumps(model.get_hyperparameters()))
+    train.logger.comment(
+        "Accuracy {}".format(get_confusion_matrix(model, test_set, verbose=1).accuracy())
+    )
+    train.logger.write_to_file("log/" + name)
 
     with open('model_prototype.dpl', 'wb') as f:
-      pickle.dump(model, f)
+        pickle.dump(model, f)
     # dump prototype tensor source
     with open('latent_source_prototype.torch', 'wb') as f:
-      pickle.dump(model.tensor_sources["prototype"], f)
+        pickle.dump(model.tensor_sources["prototype"], f)
+else:
+    with open('latent_source_prototype.torch', 'rb') as f:
+        latent = pickle.load(f)
+
+raise Exception
 
 with open('model_prototype.dpl', 'rb') as f:
     model2 = pickle.load(f)
 
 model.networks = model2.networks
-
+model.add_tensor_source('prototype', latent)
 model.networks['encoder'].freeze()
 model.networks['decoder'].freeze()
-with open('latent_source_prototype.torch', 'rb') as f:
-    latent = pickle.load(f)
 
-model.add_tensor_source('prototype', latent)
-
-from deepproblog.dataset import DataLoader, QueryDataset
-from deepproblog.evaluate import get_confusion_matrix
 train_set = QueryDataset(model.get_evidence())
-print("Accuracy: ", get_confusion_matrix(model, train_set, verbose=3).accuracy())
 
-raise Exception
-
-
-# mnist_test = MNIST('mnist_test')
-
-engine = ExactEngine(model)
-
+from deepproblog.query import Query
 query = Query(Term('digit', Var('X'), Constant(7)))
 # query = Query(Term('digit', Var('X'), Var('Y')))
 # query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(7))), Var('Y'), Constant(8)))
