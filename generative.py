@@ -11,7 +11,7 @@ import torch
 from deepproblog.dataset import DataLoader
 from deepproblog.engines import ApproximateEngine, ExactEngine
 from deepproblog.evaluate import get_confusion_matrix
-from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition
+from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
 from deepproblog.model import Model
 from deepproblog.network import Network
 from deepproblog.train import train_model
@@ -74,10 +74,12 @@ embed_size = 12
 
 train_set = addition(N, "train")
 test_set = addition(N, "test")
+# train_set = MNIST("train")
+# test_set = MNIST("test")
 
 from prototype_networks import encoder, decoder
-encoder_network, enc_opt = encoder()
-decoder_network, dec_opt = decoder()
+encoder_network, enc_opt = encoder(embed_size)
+decoder_network, dec_opt = decoder(embed_size)
 
 enc = Network(encoder_network, "encoder", batching=True)
 enc.optimizer = enc_opt
@@ -96,13 +98,13 @@ model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
 if pretrain:
-    epochs = 5
+    epochs = 2
     # network.load_state_dict(torch.load("models/pretrained/all_{}.pth".format(pretrain)))
     latent = LatentSource(embedding_size=embed_size)
     model.add_tensor_source('prototype', latent)
 
     loader = DataLoader(train_set, 2, False)
-    train = train_model(model, loader, epochs, log_iter=100, profile=0)
+    train = train_model(model, loader, epochs, log_iter=200, profile=0)
     model.save_state("snapshot/" + name + ".pth")
     train.logger.comment(dumps(model.get_hyperparameters()))
     train.logger.comment(

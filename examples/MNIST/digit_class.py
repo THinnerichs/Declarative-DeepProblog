@@ -5,7 +5,7 @@ import torch
 from deepproblog.dataset import DataLoader
 from deepproblog.engines import ApproximateEngine, ExactEngine
 from deepproblog.evaluate import get_confusion_matrix
-from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition
+from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, MNIST
 from deepproblog.examples.MNIST.network import MNIST_Net
 from deepproblog.model import Model
 from deepproblog.network import Network
@@ -16,8 +16,8 @@ N = 1
 
 name = "digit_{}_{}".format(method, N)
 
-train_set = MNIST_train
-test_set = MNIST_test
+train_set = MNIST("train")
+test_set = MNIST("test")
 
 network = MNIST_Net()
 
@@ -27,7 +27,7 @@ if pretrain is not None and pretrain > 0:
 net = Network(network, "mnist_net", batching=True)
 net.optimizer = torch.optim.Adam(network.parameters(), lr=1e-3)
 
-model = Model("models/addition.pl", [net])
+model = Model("models/digit_only.pl", [net])
 if method == "exact":
     model.set_engine(ExactEngine(model), cache=True)
 elif method == "geometric_mean":
@@ -39,7 +39,7 @@ model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
 loader = DataLoader(train_set, 2, False)
-train = train_model(model, loader, 1, log_iter=100, profile=0)
+train = train_model(model, loader, 1, log_iter=1000, profile=0)
 model.save_state("snapshot/" + name + ".pth")
 train.logger.comment(dumps(model.get_hyperparameters()))
 train.logger.comment(

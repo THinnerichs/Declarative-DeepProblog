@@ -1,10 +1,3 @@
-% :- use_module(library(lists)).
-% :- include_dataset(mnist_test).
-% :- include_dataset(mnist_train).
-% :- include_network(discriminator, default(mnist_classifier)).
-% :- include_network(encoder, 'prototype_networks.py', 'encoder').
-% :- include_network(decoder, 'prototype_networks.py', 'decoder').
-
 number([],Result,Result).
 number([H|T],Acc,Result) :- digit(H,Nr), Acc2 is Nr+10*Acc,number(T,Acc2,Result).
 number(X,Y) :- number(X,0,Y).
@@ -18,16 +11,18 @@ digit(Image, Digit) :- prototype(Digit, Prototype), encode_decode(Image, Prototy
 
 encode_decode(Image, Latent) :- encode(Image, Latent), decode(Latent, Image). 
 
-encode(Image, Latent) :- ground(Image), encoder(Image,Latent2), similar(Latent, Latent2).
+encode(Image, Latent) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2).
 encode(Image, Latent) :- var(Image), decoder(Latent, Image).
 
-decode(Latent, Image) :- ground(Latent), decoder(Latent, Image2), similar(Image, Image2).
+decode(Latent, Image) :- ground(Latent), decoder(Latent, Image2), im_similar(Image, Image2).
 decode(Latent, Image) :- var(Latent), encoder(Image, Latent).
 
 nn(encoder, [Image], Latent) :: encoder(Image, Latent).
 nn(decoder, [Latent], Image) :: decoder(Latent, Image).
 
-similar(X,X).
-P :: similar(Image1, Image2) :- Image1 \= Image2, rbf(Image1, Image2, P).
+im_similar(X,X).
+P :: im_similar(Image1, Image2) :- Image1 \= Image2, mse(Image1, Image2, P).
 
-% :- include_evidence('mnist.pl').
+lat_similar(X,X).
+P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, cos(Lat1, Lat2, P).
+

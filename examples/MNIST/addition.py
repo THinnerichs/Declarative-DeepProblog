@@ -39,7 +39,7 @@ model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
 loader = DataLoader(train_set, 2, False)
-train = train_model(model, loader, 1, log_iter=100, profile=0)
+train = train_model(model, loader, 1, log_iter=1000, profile=0)
 model.save_state("snapshot/" + name + ".pth")
 train.logger.comment(dumps(model.get_hyperparameters()))
 train.logger.comment(
