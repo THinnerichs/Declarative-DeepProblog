@@ -8,7 +8,7 @@ from json import dumps
 
 import torch
 
-from deepproblog.dataset import DataLoader
+from deepproblog.dataset import DataLoader, QueryDataset
 from deepproblog.engines import ApproximateEngine, ExactEngine
 from deepproblog.evaluate import get_confusion_matrix
 from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
@@ -21,9 +21,16 @@ import argparse
 import os
 
 method = "exact"
-N = 1
+# problem = "digit"
+problem = "addition"
 
-name = "addition_{}_{}".format(method, N)
+if problem == "digit":
+    name = f"digit_distr_{method}"
+elif problem == "addition":
+    N = 1
+    name = f"addition_distr_{method}_{N}"
+else:
+    raise ValueError
 
 save_path = ""
 if __name__ == "__main__":
@@ -41,6 +48,8 @@ if __name__ == "__main__":
     save_path = args.save_path
     pretrain = args.pretrain
     show_all = args.show_all
+
+epochs = 10
 
 output_path = f"output/{save_path}"
 output_path += "/" if not output_path.endswith("/") else ""
@@ -72,12 +81,14 @@ class LatentSource(Mapping[Term, torch.Tensor]):
 
 embed_size = 12
 
-train_set = addition(N, "train")
-test_set = addition(N, "test")
-# train_set = MNIST("train")
-# test_set = MNIST("test")
+if problem == "digit":
+    train_set = MNIST("train")
+    test_set = MNIST("test")
+elif problem == "addition":
+    train_set = addition(N, "train")
+    test_set = addition(N, "test")
 
-from prototype_networks import encoder, decoder
+from distr_prototype_networks import encoder, decoder
 encoder_network, enc_opt = encoder(embed_size)
 decoder_network, dec_opt = decoder(embed_size)
 
@@ -86,7 +97,7 @@ enc.optimizer = enc_opt
 dec = Network(decoder_network, "decoder", batching=True)
 dec.optimizer = dec_opt
 
-model = Model("models/prototype.pl", [enc, dec])
+model = Model("models/distr_prototype.pl", [enc, dec])
 if method == "exact":
     engine = ExactEngine(model)
     model.set_engine(engine, cache=False)
@@ -98,13 +109,11 @@ model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
 if pretrain:
-    epochs = 2
-    # network.load_state_dict(torch.load("models/pretrained/all_{}.pth".format(pretrain)))
-    latent = LatentSource(embedding_size=embed_size)
-    model.add_tensor_source('prototype', latent)
+    latent = LatentSource(embedding_size=embed_size*2) # Prototypes now have hold mean + std, hence times 2
 
+    model.add_tensor_source('prototype', latent)
     loader = DataLoader(train_set, 2, False)
-    train = train_model(model, loader, epochs, log_iter=200, profile=0)
+    train = train_model(model, loader, epochs, log_iter=10000, profile=0)
     model.save_state("snapshot/" + name + ".pth")
     train.logger.comment(dumps(model.get_hyperparameters()))
     train.logger.comment(
@@ -112,38 +121,45 @@ if pretrain:
     )
     train.logger.write_to_file("log/" + name)
 
-    with open('model_prototype.dpl', 'wb') as f:
-        pickle.dump(model, f)
     # dump prototype tensor source
-    with open('latent_source_prototype.torch', 'wb') as f:
+    with open('distr_latent_source_prototype.torch', 'wb') as f:
         pickle.dump(model.tensor_sources["prototype"], f)
 else:
-    with open('latent_source_prototype.torch', 'rb') as f:
+    with open('distr_latent_source_prototype.torch', 'rb') as f:
         latent = pickle.load(f)
 
-raise Exception
+    model.add_tensor_source('prototype', latent)
+    model.load_state("snapshot/" + name + ".pth")
 
-with open('model_prototype.dpl', 'rb') as f:
-    model2 = pickle.load(f)
+for param in latent.data.parameters():
+    param.requires_grad = False
+for param in model.networks['encoder'].parameters():
+    param.requires_grad = False
+for param in model.networks['decoder'].parameters():
+    param.requires_grad = False
 
-model.networks = model2.networks
-model.add_tensor_source('prototype', latent)
-model.networks['encoder'].freeze()
-model.networks['decoder'].freeze()
-
-train_set = QueryDataset(model.get_evidence())
+# model.networks['encoder'].freeze()
+# model.networks['decoder'].freeze()
 
 from deepproblog.query import Query
-query = Query(Term('digit', Var('X'), Constant(7)))
+# query = Query(Term('digit', Var('X'), Constant(6)))
+
 # query = Query(Term('digit', Var('X'), Var('Y')))
+# dataset_name = test_set.dataset_name
 # query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(7))), Var('Y'), Constant(8)))
-# query = Query(Term('addition', Var('X'), Var('Y'), Constant(7)))
-ac = engine.query(query)
+query = Query(Term('addition', Var('X'), Var('Y'), Constant(9)))
+# ac = engine.query(query)
 
-results = ac.evaluate(model)
-groundings = results if show_all else [max(results, key = lambda x: results[x])]
+answers = model.solve([query])[0].result
 
-for key in groundings:
+print(f"{answers=}")
+
+groundings = answers if show_all else {max(answers, key = lambda x: answers[x]):1.0}
+
+print(f"{groundings=}")
+
+for key, prob in groundings.items():
+    print(f"{key.args=}")
     if len(key.args) == 2:
         tensor1_term, label = key.args
         # probability = results[key]

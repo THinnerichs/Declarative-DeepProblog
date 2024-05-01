@@ -21,12 +21,6 @@ class Encoder(nn.Module):
         #  return self.fc31(h), self.fc32(h)  # mu, log_var # VAE
         return self.fc31(h) # AE
 
-
-    def sampling(self, mu, log_var):
-        std = torch.exp(0.5 * log_var)
-        eps = torch.randn_like(std)
-        return eps.mul(std).add_(mu)  # return z sample
-
     def forward(self, x):
         # x = torch.stack(x)
         # mu, log_var = self.encoder(x.view(-1, 784))
@@ -44,12 +38,11 @@ class Decoder(nn.Module):
         self.fc6 = nn.Linear(h_dim2, x_dim)
 
     def decoder(self, z):
-        # z = torch.stack(z)
         h = F.relu(self.fc4(z))
         # h = F.relu(self.fc5(h))
         h = torch.tanh(self.fc6(h))
-        # h = h.view(-1, 1, 28, 28)
-        h = h.view(-1, 28, 28)
+        # h = h.view(-1, 28, 28)
+        h = h.view(-1, 1, 28, 28)
         return h
 
     def forward(self, z):

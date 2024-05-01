@@ -24,5 +24,5 @@ im_similar(X,X).
 P :: im_similar(Image1, Image2) :- Image1 \= Image2, mse(Image1, Image2, P).
 
 lat_similar(X,X).
-P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, cos(Lat1, Lat2, P).
+P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
 
