@@ -131,3 +131,5 @@ dmypy.json
 .idea/
 *.png
 *.dpl
+
+examples/MNIST/models/data/MNIST/
