@@ -1,5 +1,7 @@
 # Declarative DeepProblog
 
+Declarative DeepProblog is a declarative extension to DeepProblog, DeepStochlog and all neuro-symbolic languages that rely on neural predicates. 
+
 ## Setup:
 This problem relies on `deepproblog-dev` (available from `https://github.com/ML-KULeuven/deepproblog-dev`), which provides a complete setup guide.
 
