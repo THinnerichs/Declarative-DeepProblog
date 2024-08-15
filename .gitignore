@@ -133,3 +133,4 @@ dmypy.json
 *.dpl
 
 examples/MNIST/models/data/MNIST/
+data/
