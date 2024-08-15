@@ -16,8 +16,10 @@ maplist(P, [H1|T1], [H2|T2]) :-
     call(P, H1, H2),
     maplist(P, T1, T2).
 
-% all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder(Image,Lat), likelihood_norm(Lat,Prototypes,NormDist).
-all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
+% all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
+all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder(Image,Lat), map_decoder(Prototypes, Images), combined_prob(Lat, Prototypes, Image, Images, NormDist).
+
+map_decoder(Prototypes, Images) :- maplist(decoder, Prototypes, Images).
 
 encode_decode(Image, Prototype) :- encode(Image, Prototype), decode(Prototype, Image). 
 
@@ -35,6 +37,3 @@ P :: im_similar(Image1, Image2) :- Image1 \= Image2, mse(Image1, Image2, P).
 
 lat_similar(X,X).
 P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
-
-% lat_similar(X,X).
-% P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, likelihood(Lat1, Lat2, P).

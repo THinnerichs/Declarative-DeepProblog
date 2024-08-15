@@ -19,18 +19,9 @@ from deepproblog.train import train_model
 
 import argparse
 import os
+import csv
 
 method = "exact"
-problem = "digit"
-# problem = "addition"
-
-if problem == "digit":
-    name = f"digit_distr_{method}"
-elif problem == "addition":
-    N = 1
-    name = f"addition_distr_{method}_{N}"
-else:
-    raise ValueError
 
 save_path = ""
 if __name__ == "__main__":
@@ -39,6 +30,7 @@ if __name__ == "__main__":
     # Add a named parameter
     parser.add_argument("--save_path", type=str, help="Path to save the output")
     parser.add_argument("--model_type", type=str, help="ae or vae?")
+    parser.add_argument("--problem", type=str, help="digit or addition task?")
     parser.add_argument('--inference_only', action=argparse.BooleanOptionalAction, help='Load pre-trained model and only do inference?', default=False)
     parser.add_argument('--load_pretrained', action=argparse.BooleanOptionalAction, help='Load existing NNs and continue training?', default=False)
     parser.add_argument('--show_all', action=argparse.BooleanOptionalAction, help='Write all possible groundings?', default=False)
@@ -52,11 +44,21 @@ if __name__ == "__main__":
     inference_only = args.inference_only
     load_pretrained = args.load_pretrained
     show_all = args.show_all
+    problem = args.problem
 
 if model_type not in ["ae", "vae"]:
     raise ValueError("Invalid model_type selected.")
 
-epochs = 1
+if problem == "digit":
+    name = f"digit_{model_type}_{method}"
+    epochs = 2
+elif problem == "addition":
+    N = 1
+    epochs = 2
+    name = f"addition_{model_type}_{method}_{N}"
+else:
+    raise ValueError
+
 
 output_path = f"output/{save_path}"
 output_path += "/" if not output_path.endswith("/") else ""
@@ -116,32 +118,42 @@ model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
 if inference_only:
-    with open('distr_latent_source_prototype.torch', 'rb') as f:
+    with open(f'{model_type}_latent_source_prototype.torch', 'rb') as f:
         latent = pickle.load(f)
     model.add_tensor_source('prototype', latent)
     model.load_state("snapshot/" + name + ".pth")
 else:
     if load_pretrained:
-        with open('distr_latent_source_prototype.torch', 'rb') as f:
+        with open(f'ae_latent_source_prototype.torch', 'rb') as f:
             latent = pickle.load(f)
-        model.load_state("snapshot/" + name + ".pth")
+        model.load_state("snapshot/" + name.replace("vae", "ae") + ".pth")
     else:
         latent = LatentSource(embedding_size=embed_size*2) # Prototypes now have hold mean + std, hence times 2
-
-    model.add_tensor_source('prototype', latent)
 
     model.add_tensor_source('prototype', latent)
     loader = DataLoader(train_set, 2, False)
     train = train_model(model, loader, epochs, log_iter=1000, profile=0)
     model.save_state("snapshot/" + name + ".pth")
+
+    accuracy = get_confusion_matrix(model, test_set, verbose=1).accuracy()
     train.logger.comment(dumps(model.get_hyperparameters()))
     train.logger.comment(
-        "Accuracy {}".format(get_confusion_matrix(model, test_set, verbose=1).accuracy())
+        "Accuracy {}".format(accuracy)
     )
     train.logger.write_to_file("log/" + name)
 
+    # Get accuracy to put for RQ1
+    filename = f'{name}_RQ1.csv'
+
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        # Append the data
+        writer.writerow([accuracy])
+
+
+
     # dump prototype tensor source
-    with open('distr_latent_source_prototype.torch', 'wb') as f:
+    with open(f'{model_type}_latent_source_prototype.torch', 'wb') as f:
         pickle.dump(model.tensor_sources["prototype"], f)
     
 # Run inference
@@ -170,7 +182,7 @@ print(f"{answers=}")
 
 groundings = answers if show_all else {max(answers, key = lambda x: answers[x]):1.0}
 
-print(f"{groundings=}")
+
 
 for key, prob in groundings.items():
     print(f"{key.args=}")
@@ -195,7 +207,13 @@ for key, prob in groundings.items():
                     best_im = im
                     best_y = y
 
-        print("Label:", label, "closest y:", y)
+        print("Label:", label, "closest y:", best_y)
+        filename = f'{name}_RQ2.csv'
+
+        # Open the file in append mode
+        with open(filename, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([label, best_y])
 
         save_image(tensor1, output_path + '{}_term_1.png'.format(tensor1_term), value_range=(-1.0, 1.0))
     elif len(key.args) == 3:

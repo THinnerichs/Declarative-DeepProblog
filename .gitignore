@@ -132,5 +132,15 @@ dmypy.json
 *.png
 *.dpl
 
-examples/MNIST/models/data/MNIST/
-data/
+deepproblog_examples/MNIST/snapshot/*
+deepproblog_examples/MNIST/log/*
+deepproblog_examples/MNIST/data/MNIST/*
+
+deepproblog_examples/HWF/data/Handwritten_Math_Symbols/*
+deepproblog_examples/HWF/data/expr_*
+deepproblog_examples/HWF/data/hwf.zip
+deepproblog_examples/HWF/data/original/*
+
+
+
+

@@ -30,25 +30,26 @@ parse([N1,/,N2|T], R) :-
 
 
 % Declarative logic
-num_prototype(X, tensor(prototype(X))) :- between(0,9,X).
-op_prototype(X, tensor(prototype(X))) :- member(X, [+,-,*,/]).
+num_prototype(X, tensor(num_prototype(X))) :- between(0,9,X).
+op_prototype(X, tensor(op_prototype([X]))) :- member(X, [+,-,*,/]).
+
 
 detect_number(Image, Digit) :- num_prototype(Digit, Prototype), encode_decode(Image, Prototype).
-detect_operator(Image, Op) :- op_prototype(Op, Prototype), encode_decode_op(Image, Prototype).
+detect_operator(Image, Op) :- op_prototype(Op, Prototype), encode_decode(Image, Prototype).
 
 P0::detect_number(I,0) ; P1::detect_number(I,1); P2::detect_number(I,2); P3::detect_number(I,3); P4::detect_number(I,4); P5::detect_number(I,5); P6::detect_number(I,6); P7::detect_number(I,8); P9::detect_number(I,9):- all_prob(I,[0,1,2,3,4,5,6,7,8,9],[P0, P1, P2, P3, P4, P5, P6, P7, P8, P9]).
+
+P0::detect_operator(I,+) ; P1::detect_operator(I,-); P2::detect_operator(I,*); P3::detect_operator(I,/):- all_prob(I,[+,-,*,/],[P0, P1, P2, P3]).
 
 maplist(_, [], []).
 maplist(P, [H1|T1], [H2|T2]) :-
     call(P, H1, H2),
     maplist(P, T1, T2).
 
-all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder(Image,Lat), likelihood_norm(Lat,Prototypes,NormDist).
-all_prob(Image,Classes, NormDist) :- maplist(prototype,Classes,Prototypes), encoder_op(Image,Lat), likelihood_norm(Lat,Prototypes,NormDist).
+all_prob(Image,Classes, NormDist) :- maplist(num_prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
+all_prob(Image,Classes, NormDist) :- maplist(op_prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
 
 encode_decode(Image, Prototype) :- encode(Image, Prototype), decode(Prototype, Image).
-encode_decode_op(Image, Prototype) :- encode_op(Image, Prototype), decode_op(Prototype, Image).
-% encode_decode(Image, Prototype) :- encode(Image, Prototype), decode(Prototype, Image).
 
 % Detect Number
 encode(Image, Latent) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2).
@@ -61,21 +62,11 @@ nn(encoder, [Image], Latent) :: encoder(Image, Latent).
 nn(decoder, [Latent], Image) :: decoder(Latent, Image).
 
 
-% Detect Operator
-encode_op(Image, Latent) :- ground(Image), encoder_op(Image,Latent2), lat_similar(Latent, Latent2).
-encode_op(Image, Latent) :- var(Image), decoder_op(Latent, Image).
-
-decode_op(Latent, Image) :- ground(Latent), decoder_op(Latent, Image2), im_similar(Image, Image2).
-decode_op(Latent, Image) :- var(Latent), encoder_op(Image, Latent).
-
-nn(encoder_op, [Image], Latent) :: encoder_op(Image, Latent).
-nn(decoder_op, [Latent], Image) :: decoder_op(Latent, Image).
-
 im_similar(X,X).
 P :: im_similar(Image1, Image2) :- Image1 \= Image2, mse(Image1, Image2, P).
 
-% lat_similar(X,X).
-%P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
-
 lat_similar(X,X).
-P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, likelihood(Lat1, Lat2, P).
+P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
+
+% lat_similar(X,X).
+% P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, likelihood(Lat1, Lat2, P).

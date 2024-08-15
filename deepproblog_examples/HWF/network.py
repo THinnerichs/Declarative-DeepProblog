@@ -3,7 +3,7 @@ from torch import nn
 
 
 class SymbolEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, embed_size):
         super(SymbolEncoder, self).__init__()
         self.convolutions = nn.Sequential(
             nn.Conv2d(1, 6, 3, stride=1, padding=1),
@@ -16,8 +16,8 @@ class SymbolEncoder(nn.Module):
         )
 
         self.mlp = nn.Sequential(
-            nn.Linear(16 * 11 * 11, 128),
-            nn.ReLU(),
+            nn.Linear(16 * 11 * 11, embed_size),
+            nn.Tanh()
             # nn.Dropout2d(0.8)
         )
 
@@ -28,15 +28,47 @@ class SymbolEncoder(nn.Module):
         return x
 
 
-class SymbolClassifier(nn.Module):
-    def __init__(self, encoder, N=10):
-        super(SymbolClassifier, self).__init__()
-        self.encoder = encoder
-        self.fc2 = nn.Linear(128, N)
-        self.softmax = nn.Softmax(dim=-1)
+class SymbolDecoder(nn.Module):
+    def __init__(self, embed_size):
+        super(SymbolDecoder, self).__init__()
+        # decoder part
 
-    def forward(self, x):
-        x = self.encoder(x)
-        x = self.fc2(x)
-        x = self.softmax(x)
-        return x
+        self.decoder = nn.Sequential(
+            nn.Linear(embed_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 45 * 45),
+            nn.Tanh()
+        )
+
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(12, 64 * 4 * 4),
+        #     Reshape((-1, 64, 4, 4)),  # Reshape to (batch_size, channels, height, width)
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(8, 4, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(4, 3, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.Sigmoid()
+        # )
+
+    def sampling(self, mu, log_var):
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add_(mu)  # return z sample
+
+    def forward(self, z):
+        mu, log_var = torch.chunk(z, 2, dim=-1)
+        z = self.sampling(mu, log_var)
+        z =  self.decoder(z)
+        z = z.view(-1, 1, 45, 45)
+        return z
+
+def encoder(lat_dim=12):
+    module = SymbolEncoder(embed_size=lat_dim)
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-4)
+    return module, optimizer
+
+
+def decoder(lat_dim=12):
+    module = SymbolDecoder(embed_size=lat_dim)
+    optimizer = torch.optim.Adam(module.parameters(), lr=1e-4)
+    return module, optimizer
