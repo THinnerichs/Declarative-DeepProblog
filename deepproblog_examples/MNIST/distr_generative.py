@@ -16,7 +16,6 @@ from deepproblog.model import Model
 from deepproblog.network import Network
 from deepproblog.train import train_model
 
-
 import argparse
 import os
 import csv
@@ -51,10 +50,10 @@ if model_type not in ["ae", "vae"]:
 
 if problem == "digit":
     name = f"digit_{model_type}_{method}"
-    epochs = 1
+    epochs = 10
 elif problem == "addition":
     N = 1
-    epochs = 2
+    epochs = 20
     name = f"addition_{model_type}_{method}_{N}"
 else:
     raise ValueError
@@ -150,8 +149,6 @@ else:
         # Append the data
         writer.writerow([accuracy])
 
-
-
     # dump prototype tensor source
     with open(f'{model_type}_latent_source_prototype.torch', 'wb') as f:
         pickle.dump(model.tensor_sources["prototype"], f)
@@ -180,9 +177,12 @@ answers = model.solve([query])[0].result
 
 print(f"{answers=}")
 
-groundings = answers if show_all else {max(answers, key = lambda x: answers[x]):1.0}
+if show_all:
+    groundings = {k:v for k,v in answers.items() if v==1.0}
+else:
+    groundings = {max(answers, key = lambda x: answers[x]):1.0}
 
-
+print("groundings", groundings)
 
 for key, prob in groundings.items():
     print(f"{key.args=}")
@@ -208,7 +208,7 @@ for key, prob in groundings.items():
                     best_y = y
 
         print("Label:", label, "closest y:", best_y)
-        filename = f'{name}_RQ2.csv'
+        filename = f'{name}_RQ3.csv'
 
         # Open the file in append mode
         with open(filename, mode='a', newline='') as file:

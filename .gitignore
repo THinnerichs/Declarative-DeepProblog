@@ -141,6 +141,9 @@ deepproblog_examples/HWF/data/expr_*
 deepproblog_examples/HWF/data/hwf.zip
 deepproblog_examples/HWF/data/original/*
 
+deepproblog_examples/MNIST/ae_latent_source_prototype.torch
+deepproblog_examples/MNIST/vae_latent_source_prototype.torch
+
 
 
 
