@@ -34,39 +34,40 @@ num_prototype(X, tensor(num_prototype(X))) :- between(0,9,X).
 op_prototype(X, tensor(op_prototype([X]))) :- member(X, [+,-,*,/]).
 
 
-detect_number(Image, Digit) :- num_prototype(Digit, Prototype), encode_decode(Image, Prototype).
-detect_operator(Image, Op) :- op_prototype(Op, Prototype), encode_decode(Image, Prototype).
+% detect_number(Image, Digit) :- num_prototype(Digit, Prototype), encode_decode(Image, Prototype).
+% detect_operator(Image, Op) :- op_prototype(Op, Prototype), encode_decode(Image, Prototype).
 
-P0::detect_number(I,0) ; P1::detect_number(I,1); P2::detect_number(I,2); P3::detect_number(I,3); P4::detect_number(I,4); P5::detect_number(I,5); P6::detect_number(I,6); P7::detect_number(I,8); P9::detect_number(I,9):- all_prob(I,[0,1,2,3,4,5,6,7,8,9],[P0, P1, P2, P3, P4, P5, P6, P7, P8, P9]).
+P0::detect_number(I,0) ; P1::detect_number(I,1); P2::detect_number(I,2); P3::detect_number(I,3); P4::detect_number(I,4); P5::detect_number(I,5); P6::detect_number(I,6); P7::detect_number(I,8); P9::detect_number(I,9):- all_prob_num(I,[0,1,2,3,4,5,6,7,8,9],[P0, P1, P2, P3, P4, P5, P6, P7, P8, P9]).
 
-P0::detect_operator(I,+) ; P1::detect_operator(I,-); P2::detect_operator(I,*); P3::detect_operator(I,/):- all_prob(I,[+,-,*,/],[P0, P1, P2, P3]).
+P0::detect_operator(I,+) ; P1::detect_operator(I,-); P2::detect_operator(I,*); P3::detect_operator(I,/):- all_prob_op(I,[+,-,*,/],[P0, P1, P2, P3]).
 
 maplist(_, [], []).
 maplist(P, [H1|T1], [H2|T2]) :-
     call(P, H1, H2),
     maplist(P, T1, T2).
 
-all_prob(Image,Classes, NormDist) :- maplist(num_prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
-all_prob(Image,Classes, NormDist) :- maplist(op_prototype,Classes,Prototypes), encoder(Image,Lat), distrcos_norm(Lat,Prototypes,NormDist).
+all_prob_num(Image,Classes, NormDists) :- maplist(num_prototype,Classes,Prototypes), map_encode_decode(Image, Prototypes, NormDists).%, norm(Dists, NormDists), writeln('BUmm2').
+all_prob_op(Image,Classes, NormDists) :- maplist(op_prototype,Classes,Prototypes), map_encode_decode(Image, Prototypes, NormDists).%, norm(Dists, NormDists), writeln('BUmm2').
 
-encode_decode(Image, Prototype) :- encode(Image, Prototype), decode(Prototype, Image).
 
-% Detect Number
-encode(Image, Latent) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2).
-encode(Image, Latent) :- var(Image), decoder(Latent, Image).
+map_encode_decode(Image, [], []).
+map_encode_decode(Image, [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), map_encode_decode(Image, Prototypes, Probs).
 
-decode(Latent, Image) :- ground(Latent), decoder(Latent, Image2), im_similar(Image, Image2).
-decode(Latent, Image) :- var(Latent), encoder(Image, Latent).
+encode_decode(Image, Prototype, P) :- encode(Image, Prototype, P1), decode(Prototype, Image, P2), mul(P1, P2, P). 
+
+encode(Image, Latent, P) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2, P).
+encode(Image, Latent, 1.0) :- var(Image), decoder(Latent, Image).
+
+decode(Latent, Image, P) :- ground(Latent), decoder(Latent, Image2), im_similar(Image, Image2, P).
+decode(Latent, Image, 1.0) :- var(Latent), encoder(Image, Latent).
 
 nn(encoder, [Image], Latent) :: encoder(Image, Latent).
 nn(decoder, [Latent], Image) :: decoder(Latent, Image).
 
+im_similar(X,X, 1.0).
+im_similar(Image1, Image2, P) :- Image1 \= Image2, mse(Image1, Image2, P).
 
-im_similar(X,X).
-P :: im_similar(Image1, Image2) :- Image1 \= Image2, mse(Image1, Image2, P).
-
-lat_similar(X,X).
-P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
-
+lat_similar(X,X, 1.0).
+lat_similar(Lat1, Lat2, P) :- Lat1 \= Lat2, distrcos(Lat1, Lat2, P).
 % lat_similar(X,X).
-% P :: lat_similar(Lat1, Lat2) :- Lat1 \= Lat2, likelihood(Lat1, Lat2, P).
+% lat_similar(Lat1, Lat2, P) :- Lat1 \= Lat2, likelihood(Lat1, Lat2, P).

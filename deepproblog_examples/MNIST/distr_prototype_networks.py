@@ -26,9 +26,9 @@ class Encoder(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(16 * 7 * 7, 128),
             nn.ReLU(),
-            nn.Linear(128, 84),
-            nn.ReLU(),
-            nn.Linear(84, 12),
+            nn.Linear(128, 12),
+            # nn.ReLU(),
+            # nn.Linear(84, 12),
             nn.Tanh()
             # nn.Dropout2d(0.8)
         )

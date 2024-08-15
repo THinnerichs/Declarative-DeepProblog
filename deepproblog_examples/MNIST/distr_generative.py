@@ -51,7 +51,7 @@ if model_type not in ["ae", "vae"]:
 
 if problem == "digit":
     name = f"digit_{model_type}_{method}"
-    epochs = 2
+    epochs = 1
 elif problem == "addition":
     N = 1
     epochs = 2
@@ -131,8 +131,8 @@ else:
         latent = LatentSource(embedding_size=embed_size*2) # Prototypes now have hold mean + std, hence times 2
 
     model.add_tensor_source('prototype', latent)
-    loader = DataLoader(train_set, 2, False)
-    train = train_model(model, loader, epochs, log_iter=1000, profile=0)
+    loader = DataLoader(train_set, 12, False)
+    train = train_model(model, loader, epochs, log_iter=100, profile=0)
     model.save_state("snapshot/" + name + ".pth")
 
     accuracy = get_confusion_matrix(model, test_set, verbose=1).accuracy()
