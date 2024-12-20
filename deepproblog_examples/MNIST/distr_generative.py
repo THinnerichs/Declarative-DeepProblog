@@ -108,7 +108,7 @@ dec.optimizer = dec_opt
 model = Model(f"models/prototype_{model_type}.pl", [enc, dec])
 if method == "exact":
     engine = ExactEngine(model)
-    model.set_engine(engine, cache=False)
+    model.set_engine(engine, cache=True)
 elif method == "geometric_mean":
     engine = ApproximateEngine(model, 1, ApproximateEngine.geometric_mean, exploration=False)
     model.set_engine(engine)
@@ -127,7 +127,12 @@ else:
             latent = pickle.load(f)
         model.load_state("snapshot/" + name.replace("vae", "ae") + ".pth")
     else:
-        latent = LatentSource(embedding_size=embed_size*2) # Prototypes now have hold mean + std, hence times 2
+        # Construct prototypes
+        if model_type == "vae":
+            # Prototypes now have to hold mean + std, hence times 2
+            latent = LatentSource(embedding_size=embed_size*2) 
+        elif model_type == "ae":
+            latent = LatentSource(embedding_size=embed_size)
 
     model.add_tensor_source('prototype', latent)
     loader = DataLoader(train_set, 12, False)
