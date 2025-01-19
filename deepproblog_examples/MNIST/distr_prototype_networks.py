@@ -38,7 +38,7 @@ class Encoder(nn.Module):
         return self.fc2(h)
 
     def forward(self, x):
-        print(f"x.shape: {x.shape}")
+        x = x[0]
         # z = self.encoder(x.view(-1, 784))
         x = x.view(-1,1,28,28)
         z = self.convolutions(x).view(-1, 16*7*7)
@@ -84,7 +84,8 @@ class Decoder(nn.Module):
 
 
     def decoder(self, z):
-        if z.size(1) == self.z_dim * 2:
+        z = z[0]
+        if z.size(0) == self.z_dim * 2:
             mu, log_var = torch.chunk(z, 2, dim=-1)
             z = self.sampling(mu, log_var)
 

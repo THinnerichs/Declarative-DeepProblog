@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 from problog.logic import Term, list2term, Constant
 from torch.utils.data import Dataset as TorchDataset
 
-from deepproblog.dataset import Dataset
+from deepproblog.dataset import Dataset, QueryDataset
 from deepproblog.query import Query
 
 _DATA_ROOT = Path(__file__).parent
@@ -60,6 +60,7 @@ class MNIST(Dataset):
         )
 
     def __init__(self, dataset):
+        super().__init__()
         self.dataset = dataset
         self.data = datasets[dataset]
 
@@ -167,6 +168,9 @@ class MNISTOperator(Dataset, TorchDataset):
                 )
                 inner_vars.append(t)
             var_names.append(inner_vars)
+
+        # print("var_names:", var_names)
+        # print("subs", subs)
 
         # Build query
         if self.size == 1:

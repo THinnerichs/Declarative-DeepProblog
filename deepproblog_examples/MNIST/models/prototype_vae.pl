@@ -16,8 +16,8 @@ maplist(P, [H1|T1], [H2|T2]) :-
     call(P, H1, H2),
     maplist(P, T1, T2).
 
-map_encode_decode(Image, [], []).
-map_encode_decode(Image, [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), map_encode_decode(Image, Prototypes, Probs).
+  % map_encode_decode(Image, [], []).
+% map_encode_decode(Image, [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), map_encode_decode(Image, Prototypes, Probs).
 
 all_prob(Image,Classes, Dists) :- maplist(prototype,Classes,Prototypes), maplist(encode_decode(Image), Prototypes, Dists).%, maplist(tensor_to_float, Dists, Floats), writeln(Floats).
 

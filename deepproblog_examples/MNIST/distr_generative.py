@@ -10,11 +10,15 @@ import torch
 
 from deepproblog.dataset import DataLoader, QueryDataset
 from deepproblog.engines import ApproximateEngine, ExactEngine
-from deepproblog.evaluate import get_confusion_matrix
-from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
+# from deepproblog.evaluate import get_confusion_matrix
+# from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
 from deepproblog.model import Model
 from deepproblog.network import Network
-from deepproblog.train import train_model
+
+
+# local imports
+from data import MNIST, addition, MNIST_train, MNIST_test
+
 
 import argparse
 import os
@@ -100,18 +104,18 @@ from distr_prototype_networks import encoder, decoder
 encoder_network, enc_opt = encoder(embed_size)
 decoder_network, dec_opt = decoder(embed_size)
 
-enc = Network(encoder_network, "encoder", batching=True)
-enc.optimizer = enc_opt
-dec = Network(decoder_network, "decoder", batching=True)
-dec.optimizer = dec_opt
+enc = Network(encoder_network, "encoder")
+# enc.optimizer = enc_opt
+dec = Network(decoder_network, "decoder")
+# dec.optimizer = dec_opt
 
-model = Model(f"models/prototype_{model_type}.pl", [enc, dec])
-if method == "exact":
-    engine = ExactEngine(model)
-    model.set_engine(engine, cache=True)
-elif method == "geometric_mean":
-    engine = ApproximateEngine(model, 1, ApproximateEngine.geometric_mean, exploration=False)
-    model.set_engine(engine)
+# load program
+path = f"models/prototype_{model_type}.pl"
+with open(path) as f:
+    program_string = f.read()
+
+model = Model(program_string, [enc, dec])
+engine = ExactEngine(model, cache_memory=True)
 
 model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
@@ -135,16 +139,19 @@ else:
             latent = LatentSource(embedding_size=embed_size)
 
     model.add_tensor_source('prototype', latent)
-    loader = DataLoader(train_set, 12, False)
-    train = train_model(model, loader, epochs, log_iter=100, profile=0)
-    model.save_state("snapshot/" + name + ".pth")
+    
+    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=False)
 
-    accuracy = get_confusion_matrix(model, test_set, verbose=1).accuracy()
-    train.logger.comment(dumps(model.get_hyperparameters()))
-    train.logger.comment(
-        "Accuracy {}".format(accuracy)
-    )
-    train.logger.write_to_file("log/" + name)
+    # loader = DataLoader(train_set, 12, False)
+    # train = train_model(model, loader, epochs, log_iter=100, profile=0)
+    # model.save_state("snapshot/" + name + ".pth")
+
+    # accuracy = get_confusion_matrix(model, test_set, verbose=1).accuracy()
+    # train.logger.comment(dumps(model.get_hyperparameters()))
+    # train.logger.comment(
+    #     "Accuracy {}".format(accuracy)
+    # )
+    # train.logger.write_to_file("log/" + name)
 
     # Get accuracy to put for RQ1
     filename = f'{name}_RQ1.csv'
