@@ -1,4 +1,5 @@
 import torch.nn as nn
+from torch import tensor
 
 
 class MNIST_CNN(nn.Module):
@@ -35,6 +36,10 @@ class MNIST_Classifier(nn.Module):
         )
 
     def forward(self, x):
+        if len(x) == 1:
+            x = x[0]
+        else:
+            raise Exception
         x = self.classifier(x)
         if self.with_softmax:
             x = self.softmax(x)
@@ -68,9 +73,14 @@ class MNIST_Net(nn.Module):
         )
 
     def forward(self, x):
-        x = self.encoder(x[0])
+        if len(x) == 1:
+            x = x[0]
+        else:
+            raise ValueError("Encountered wrong shape for MNIST argument")
+        x = self.encoder(x)
         x = x.view(-1, self.size)
         x = self.classifier(x)
+
         if self.with_softmax:
             x = self.softmax(x)
         return x

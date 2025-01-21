@@ -8,6 +8,7 @@ import torchvision
 import torchvision.transforms as transforms
 from problog.logic import Term, list2term, Constant
 from torch.utils.data import Dataset as TorchDataset
+from torch import tensor
 
 from deepproblog.dataset import Dataset, QueryDataset
 from deepproblog.query import Query
@@ -64,6 +65,11 @@ class MNIST(Dataset):
         self.dataset = dataset
         self.data = datasets[dataset]
 
+    def get_labels(self):
+        labels = []
+        for i in range(len(self.data)):
+            labels.append(self.data[i][1])
+        return tensor(labels)
 
 def addition(n: int, dataset: str, seed=None):
     """Returns a dataset for binary addition"""

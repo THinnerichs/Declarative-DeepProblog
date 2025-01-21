@@ -14,6 +14,9 @@ from deepproblog.engines import ApproximateEngine, ExactEngine
 # from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
 from deepproblog.model import Model
 from deepproblog.network import Network
+from deepproblog.logger import VerboseLogger
+
+from sklearn.metrics import accuracy_score
 
 
 # local imports
@@ -23,6 +26,16 @@ from data import MNIST, addition, MNIST_train, MNIST_test
 import argparse
 import os
 import csv
+
+def load_state(model, state_file):
+    with open(state_file, 'rb') as f:
+        state_dict = pickle.load(f)
+    model.__setstate__(state_dict)
+
+def save_state(model, state_file):
+    state_dict = model.__getstate__()
+    with open(state_file, 'wb') as f:
+        pickle.dump(state_dict, f)
 
 method = "exact"
 
@@ -35,7 +48,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, help="ae or vae?")
     parser.add_argument("--problem", type=str, help="digit or addition task?")
     parser.add_argument('--inference_only', action=argparse.BooleanOptionalAction, help='Load pre-trained model and only do inference?', default=False)
-    parser.add_argument('--load_pretrained', action=argparse.BooleanOptionalAction, help='Load existing NNs and continue training?', default=False)
     parser.add_argument('--show_all', action=argparse.BooleanOptionalAction, help='Write all possible groundings?', default=False)
 
     # Parse the command-line arguments
@@ -45,7 +57,6 @@ if __name__ == "__main__":
     save_path = args.save_path
     model_type = args.model_type
     inference_only = args.inference_only
-    load_pretrained = args.load_pretrained
     show_all = args.show_all
     problem = args.problem
 
@@ -105,53 +116,64 @@ encoder_network, enc_opt = encoder(embed_size)
 decoder_network, dec_opt = decoder(embed_size)
 
 enc = Network(encoder_network, "encoder")
-# enc.optimizer = enc_opt
+enc.optimizer = enc_opt
 dec = Network(decoder_network, "decoder")
-# dec.optimizer = dec_opt
+dec.optimizer = dec_opt
 
 # load program
 path = f"models/prototype_{model_type}.pl"
 with open(path) as f:
     program_string = f.read()
 
-model = Model(program_string, [enc, dec])
+logger = VerboseLogger(log_every=100)
+model = Model(program_string, [enc, dec], logger=logger)
 engine = ExactEngine(model, cache_memory=True)
 
 model.add_tensor_source("train", MNIST_train)
 model.add_tensor_source("test", MNIST_test)
 
+model_path = "model_save_dict.pkl"
+
 if inference_only:
+    # Load pretrained model
     with open(f'{model_type}_latent_source_prototype.torch', 'rb') as f:
         latent = pickle.load(f)
+    load_state(model, model_path)
     model.add_tensor_source('prototype', latent)
-    model.load_state("snapshot/" + name + ".pth")
+
+    model.add_tensor_source("train", MNIST_train)
+    model.add_tensor_source("test", MNIST_test)
+
 else:
-    if load_pretrained:
-        with open(f'ae_latent_source_prototype.torch', 'rb') as f:
-            latent = pickle.load(f)
-        model.load_state("snapshot/" + name.replace("vae", "ae") + ".pth")
-    else:
-        # Construct prototypes
-        if model_type == "vae":
-            # Prototypes now have to hold mean + std, hence times 2
-            latent = LatentSource(embedding_size=embed_size*2) 
-        elif model_type == "ae":
-            latent = LatentSource(embedding_size=embed_size)
+    # Run training
+    if model_type == "vae":
+        # Prototypes now have to hold mean + std, hence times 2
+        latent = LatentSource(embedding_size=embed_size*2) 
+    elif model_type == "ae":
+        latent = LatentSource(embedding_size=embed_size)
 
     model.add_tensor_source('prototype', latent)
-    
-    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=False)
+    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=1)
 
-    # loader = DataLoader(train_set, 12, False)
-    # train = train_model(model, loader, epochs, log_iter=100, profile=0)
-    # model.save_state("snapshot/" + name + ".pth")
+    # prototype tensor source
+    with open(f'{model_type}_latent_source_prototype.torch', 'wb') as f:
+        pickle.dump(model.tensor_sources["prototype"], f)
+    save_state(model, model_path)
 
-    # accuracy = get_confusion_matrix(model, test_set, verbose=1).accuracy()
-    # train.logger.comment(dumps(model.get_hyperparameters()))
-    # train.logger.comment(
-    #     "Accuracy {}".format(accuracy)
-    # )
-    # train.logger.write_to_file("log/" + name)
+
+    # RQ 1 (digit) + 2 (addition):
+    # print("Making predictions")
+    # y_pred = model.predict(dataset=train_set, engine=engine)
+    # y_test = train_set.get_labels().numpy()
+    # accuracy = accuracy_score(y_test, y_pred)
+    # print("Train accuracy: \t", accuracy)
+
+    y_pred = model.predict(dataset=test_set, engine=engine)
+    print("predictions: ", y_pred)
+    y_test = test_set.get_labels().numpy()
+
+    accuracy = accuracy_score(y_test, y_pred)
+    print("Test accuracy: \t", accuracy)
 
     # Get accuracy to put for RQ1
     filename = f'{name}_RQ1.csv'
@@ -161,10 +183,7 @@ else:
         # Append the data
         writer.writerow([accuracy])
 
-    # dump prototype tensor source
-    with open(f'{model_type}_latent_source_prototype.torch', 'wb') as f:
-        pickle.dump(model.tensor_sources["prototype"], f)
-    
+
 # Run inference
 for param in latent.data.parameters():
     param.requires_grad = False
@@ -185,7 +204,10 @@ query = Query(Term('digit', Var('X'), Var('Y')))
 # query = Query(Term('addition', Var('X'), Var('Y'), Constant(9)))
 # ac = engine.query(query)
 
-answers = model.solve([query])[0].result
+# answers = model.solve([query])[0].result
+answers = model.query(query, engine)#[0].result
+print("answers", answers)
+print("answers[0].result", answers[0].result)
 
 print(f"{answers=}")
 
@@ -238,3 +260,6 @@ for key, prob in groundings.items():
         save_image(tensor2, output_path + '{}_term_2.png'.format(tensor2_term), value_range=(-1.0, 1.0))
     else:
         raise ValueError("Unsupported number of arguments of result tensors.")
+
+
+

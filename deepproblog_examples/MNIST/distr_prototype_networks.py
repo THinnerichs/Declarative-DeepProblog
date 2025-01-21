@@ -26,9 +26,9 @@ class Encoder(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(16 * 7 * 7, 128),
             nn.ReLU(),
-            nn.Linear(128, 12),
-            # nn.ReLU(),
-            # nn.Linear(84, 12),
+            nn.Linear(128, 84),
+            nn.ReLU(),
+            nn.Linear(84, 12),
             nn.Tanh()
             # nn.Dropout2d(0.8)
         )
@@ -65,17 +65,17 @@ class Decoder(nn.Module):
         self.fc6 = nn.Linear(h_dim2, x_dim)
         self.z_dim = z_dim
 
-        # self.Decoder = nn.Sequential(
-        #     nn.Linear(z_dim, 32 * 7 * 7),
-        #     Reshape((-1, 32, 7, 7)),  # Reshape to (batch_size, channels, height, width)
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(8, 1, kernel_size=3, stride=1, padding=1),
-        #     nn.Tanh()
-        # )
+        self.Decoder = nn.Sequential(
+            nn.Linear(z_dim, 32 * 7 * 7),
+            Reshape((-1, 32, 7, 7)),  # Reshape to (batch_size, channels, height, width)
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(8, 1, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
 
     def sampling(self, mu, log_var):
         std = torch.exp(0.5 * log_var)
@@ -86,15 +86,16 @@ class Decoder(nn.Module):
     def decoder(self, z):
         z = z[0]
         if z.size(0) == self.z_dim * 2:
+            # used during training and for autoencoder setup
             mu, log_var = torch.chunk(z, 2, dim=-1)
             z = self.sampling(mu, log_var)
 
-        # h = self.Decoder(z)
+        h = self.Decoder(z)
 
         # # z = torch.stack(z)
-        h = F.relu(self.fc4(z))
-        h = self.fc6(h)
-        h = torch.tanh(h)
+        # h = F.relu(self.fc4(z))
+        # h = self.fc6(h)
+        # h = torch.tanh(h)
         # # h = h.view(-1, 28, 28)
         h = h.view(-1, 1, 28, 28)
         return h
