@@ -2,6 +2,7 @@ import pickle
 from collections.abc import Mapping
 from typing import Iterator
 
+
 from problog.logic import Term, Var, Constant
 from torchvision.utils import save_image
 from json import dumps
@@ -18,14 +19,13 @@ from deepproblog.logger import VerboseLogger
 
 from sklearn.metrics import accuracy_score
 
-
-# local imports
-from data import MNIST, addition, MNIST_train, MNIST_test
-
-
 import argparse
 import os
 import csv
+import time
+
+# local imports
+from data import MNIST, addition, MNIST_train, MNIST_test
 
 def load_state(model, state_file):
     with open(state_file, 'rb') as f:
@@ -65,10 +65,8 @@ if model_type not in ["ae", "vae"]:
 
 if problem == "digit":
     name = f"digit_{model_type}_{method}"
-    epochs = 10
 elif problem == "addition":
     N = 1
-    epochs = 20
     name = f"addition_{model_type}_{method}_{N}"
 else:
     raise ValueError
@@ -121,20 +119,21 @@ dec = Network(decoder_network, "decoder")
 dec.optimizer = dec_opt
 
 # load program
-path = f"models/prototype_{model_type}.pl"
+prefix = "inference_" if inference_only else "" 
+
+path = f"models/{prefix}prototype_{model_type}.pl"
+# path = f"models/match_{model_type}.pl" # for prototype_match version
+# path = f"models/n_prototype_{model_type}.pl" # for n_prototypes
 with open(path) as f:
     program_string = f.read()
 
 logger = VerboseLogger(log_every=100)
-model = Model(program_string, [enc, dec], logger=logger)
-engine = ExactEngine(model, cache_memory=True)
-
-model.add_tensor_source("train", MNIST_train)
-model.add_tensor_source("test", MNIST_test)
-
-model_path = "model_save_dict.pkl"
+model_path = f"{problem}_model_save_dict.pkl"
 
 if inference_only:
+    model = Model(program_string, [enc, dec], logger=logger)
+    engine = ExactEngine(model, cache_memory=True)
+
     # Load pretrained model
     with open(f'{model_type}_latent_source_prototype.torch', 'rb') as f:
         latent = pickle.load(f)
@@ -145,31 +144,29 @@ if inference_only:
     model.add_tensor_source("test", MNIST_test)
 
 else:
+    model = Model(program_string, [enc, dec], logger=logger)
+    engine = ExactEngine(model, cache_memory=True)
+
+    model.add_tensor_source("train", MNIST_train)
+    model.add_tensor_source("test", MNIST_test)
+    
     # Run training
     if model_type == "vae":
         # Prototypes now have to hold mean + std, hence times 2
-        latent = LatentSource(embedding_size=embed_size*2) 
+        latent = LatentSource(embedding_size=embed_size*2, nr_embeddings=10) 
     elif model_type == "ae":
         latent = LatentSource(embedding_size=embed_size)
 
+    num_epochs = 20
     model.add_tensor_source('prototype', latent)
-    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=1)
+    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=num_epochs)
 
     # prototype tensor source
     with open(f'{model_type}_latent_source_prototype.torch', 'wb') as f:
         pickle.dump(model.tensor_sources["prototype"], f)
     save_state(model, model_path)
 
-
-    # RQ 1 (digit) + 2 (addition):
-    # print("Making predictions")
-    # y_pred = model.predict(dataset=train_set, engine=engine)
-    # y_test = train_set.get_labels().numpy()
-    # accuracy = accuracy_score(y_test, y_pred)
-    # print("Train accuracy: \t", accuracy)
-
     y_pred = model.predict(dataset=test_set, engine=engine)
-    print("predictions: ", y_pred)
     y_test = test_set.get_labels().numpy()
 
     accuracy = accuracy_score(y_test, y_pred)
@@ -192,46 +189,52 @@ for param in model.networks['encoder'].parameters():
 for param in model.networks['decoder'].parameters():
     param.requires_grad = False
 
-# model.networks['encoder'].freeze()
-# model.networks['decoder'].freeze()
-
 from deepproblog.query import Query
-# query = Query(Term('digit', Var('X'), Constant(6)))
 
-query = Query(Term('digit', Var('X'), Var('Y')))
-# dataset_name = test_set.dataset_name
-# query = Query(Term('addition', Term('tensor', Term('mnist_train', Constant(7))), Var('Y'), Constant(8)))
-# query = Query(Term('addition', Var('X'), Var('Y'), Constant(9)))
-# ac = engine.query(query)
+# For RQ3.2:
+run_RQ3_2 = False
+if run_RQ3_2:
+    # Setup
+    import random
+    n = 100
+    number_length = 4
+    values_to_mask = 4
+    dataset = addition(number_length, "train", seed=42)
+    labels = train_set.get_labels()
 
-# answers = model.solve([query])[0].result
-answers = model.query(query, engine)#[0].result
-print("answers", answers)
-print("answers[0].result", answers[0].result)
+    # Computation
+    correct_queries = 0
+    for i in range(n):
+        # Get query from dataset
+        query = dataset.to_query(random.randint(1, len(dataset)))
+        sub_dict = query.substitution
 
-print(f"{answers=}")
+        # Mask `values_to_mask` elements
+        keys_to_mask = random.sample(list(sub_dict.keys()), values_to_mask)
 
-if show_all:
-    groundings = {k:v for k,v in answers.items() if v==1.0}
-else:
-    groundings = {max(answers, key = lambda x: answers[x]):1.0}
+        masked_values = {key: sub_dict[key] for key in keys_to_mask}
 
-print("groundings", groundings)
+        masked_sub_dict = {
+            key: (Var(f"{key.functor.upper()}") if key in keys_to_mask else value)
+            for key, value in sub_dict.items()
+        }
+        query.substitution = masked_sub_dict
 
-for key, prob in groundings.items():
-    print(f"{key.args=}")
-    if len(key.args) == 2:
-        tensor1_term, label = key.args
-        # probability = results[key]
+        # Generate images
+        start_time = time.time()
+        answers = model.query(query, engine).result
+
+        groundings = {max(answers, key = lambda x: answers[x]):1.0}
         
-        tensor1 = model.get_tensor(tensor1_term).detach()
+        # Get labels of closest images
+        correct_preds = 0
+        for orig_key, grounding_key in zip(keys_to_mask, groundings):
+            tensor1_term, label = grounding_key.args
+            tensor1 = model.get_tensor(tensor1_term).detach()
 
-
-        best_im, best_y = None, None
-        if problem == "digit":
+            best_im, best_y = None, None
             best_distance = float('inf')
-
-            for im, y in train_set.data:
+            for im, y in test_set.data:
                 # Calculate Euclidean distance
                 distance = torch.norm(tensor1 - im)
                 
@@ -241,15 +244,73 @@ for key, prob in groundings.items():
                     best_im = im
                     best_y = y
 
-        print("Label:", label, "closest y:", best_y)
-        filename = f'{name}_RQ3.csv'
+            # Add truth to list
+            if best_y == label[masked_values[orig_key].value]:
+                correct_preds += 1
+        
+        if correct_preds == values_to_mask:
+            correct_queries += 1
+    # Compute accuracy
+    accuracy = correct_queries / n
+    filename = f'{name}_RQ3_2.csv'
 
-        # Open the file in append mode
-        with open(filename, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([label, best_y])
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(accuracy)
 
-        save_image(tensor1, output_path + '{}_term_1.png'.format(tensor1_term), value_range=(-1.0, 1.0))
+
+# Here are some sample queries. Un-comment a query for it to be answered.
+# query = Query(Term('digit', Var('X'), Constant(6)))
+query = Query(Term('digit', Var('X'), Var('Y')))
+# query = Query(Term('addition', Term('tensor', Term('train', Constant(7))), Var('Y'), Constant(8)))
+# query = Query(Term('addition', Var('X'), Var('Y'), Constant(9)))
+
+answers = model.query(query, engine).result
+
+print(f"{answers=}")
+
+if show_all:
+    groundings = {k:v for k,v in answers.items()}
+else:
+    groundings = {max(answers, key = lambda x: answers[x]):1.0}
+
+for key, prob in groundings.items():
+    print(f"{key.args=}")
+    if len(key.args) == 2:
+        tensor1_term, label = key.args
+        # probability = results[key]
+        
+        tensor1 = model.get_tensor(tensor1_term).detach()
+
+        run_RQ3_1 = False
+        if run_RQ3_1:
+            best_im, best_y = None, None
+            start_time = time.time()
+            if problem == "digit":
+                best_distance = float('inf')
+            
+                for im, y in train_set.data:
+                    # Calculate Euclidean distance
+                    distance = torch.norm(tensor1 - im)
+                    
+                    # Check if this image is closer than the ones checked before
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_im = im
+                        best_y = y
+
+            print(f"This took {time.time() - start_time} seconds.")
+            print("Label:", label, "closest y:", best_y)
+            filename = f'{name}_RQ3_1.csv'
+
+            # Open the file in append mode
+            with open(filename, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([label, best_y])
+
+        image_path = output_path + '{}_term_1.png'.format(tensor1_term)
+        save_image(tensor1, image_path, value_range=(-1.0, 1.0))
+        print("Saved image to", image_path)
     elif len(key.args) == 3:
         tensor1_term, tensor2_term, label = key.args
         

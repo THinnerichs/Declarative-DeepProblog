@@ -7,19 +7,29 @@ addition(Img1,Img2,Sum) :- digit(Img1,D1), digit(Img2,D2), Sum is D2+D1.
 
 prototype(X, tensor(prototype(X))) :- between(0,9,X). 
 
-P0::digit(I0,0) ; P1::digit(I1,1); P2::digit(I2,2); P3::digit(I3,3); P4::digit(I4,4); P5::digit(I5,5); P6::digit(I6,6); P7::digit(I7,7); P8::digit(I8,8); P9::digit(I9,9):- all_prob([I0,I1,I2,I3,I4,I5,I6,I7,I8,I9],[0,1,2,3,4,5,6,7,8,9],[P0, P1, P2, P3, P4, P5, P6, P7, P8, P9]).
+P0::digit(I,0) ; P1::digit(I,1); P2::digit(I,2); P3::digit(I,3); P4::digit(I,4); P5::digit(I,5); P6::digit(I,6); P7::digit(I,7); P8::digit(I,8); P9::digit(I,9):- 
+    prototype(0, Prot0), 
+    prototype(1, Prot1), 
+    prototype(2, Prot2), 
+    prototype(3, Prot3), 
+    prototype(4, Prot4), 
+    prototype(5, Prot5), 
+    prototype(6, Prot6), 
+    prototype(7, Prot7), 
+    prototype(8, Prot8), 
+    prototype(9, Prot9),
+    prototype_match(I, Prot0, P0),
+    prototype_match(I, Prot1, P1),
+    prototype_match(I, Prot2, P2),
+    prototype_match(I, Prot3, P3),          
+    prototype_match(I, Prot4, P4),
+    prototype_match(I, Prot5, P5),
+    prototype_match(I, Prot6, P6),       
+    prototype_match(I, Prot7, P7),
+    prototype_match(I, Prot8, P8),
+    prototype_match(I, Prot9, P9).
 
-maplist(_, [], []).
-maplist(P, [H1|T1], [H2|T2]) :-
-    call(P, H1, H2),
-    maplist(P, T1, T2).
-
-map_encode_decode([], [], []).
-map_encode_decode([Image|Images], [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), map_encode_decode(Images, Prototypes, Probs).
-
-all_prob(Images,Classes, Dists) :- maplist(prototype,Classes,Prototypes), map_encode_decode(Images, Prototypes, Dists).
-
-encode_decode(Image, Prototype, P) :- encode(Image, Prototype, P1), decode(Prototype, Image, P2), mul(P1, P2, P). 
+prototype_match(Image, Prot, P) :- encode(Image, Prot, P1), decode(Prot, Image, P2), mul(P1, P2, P).
 
 encode(Image, Latent, P) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2, P).
 encode(Image, Latent, 1.0) :- var(Image), decoder(Latent, Image).
