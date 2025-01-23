@@ -22,9 +22,9 @@ all_prob(Images,Classes, Dists) :- maplist(prototype,Classes,Prototypes), map_en
 encode_decode(Image, Prototype, P) :- encode(Image, Prototype, P1), decode(Prototype, Image, P2), mul(P1, P2, P). 
 
 encode(Image, Latent, P) :- ground(Image), encoder(Image,Latent2), lat_similar(Latent, Latent2, P).
-encode(Image, Latent, 1.0) :- var(Image), sample(Latent, Sample), decoder(Sample, Image), lat_similar(Latent, Sample, P).
+encode(Image, Latent, P) :- var(Image), sample(Latent, Sample), decoder(Sample, Image), lat_similar(Latent, Sample, P).
 
-decode(Latent, Image, P) :- ground(Latent), sample(Latent, Sample), lat_similar(Latent, Sample, P).
+decode(Latent, Image, 1.0) :- ground(Latent).
 decode(Latent, Image, 1.0) :- var(Latent), encoder(Image, Latent).
 
 nn(encoder, [Image], Latent) :: encoder(Image, Latent).
