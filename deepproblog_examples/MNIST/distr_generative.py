@@ -199,7 +199,7 @@ if run_RQ3_2:
     n = 100
     number_length = 4
     values_to_mask = 4
-    dataset = addition(number_length, "train", seed=42)
+    dataset = addition(number_length, "test", seed=42)
     labels = train_set.get_labels()
 
     # Computation
@@ -234,7 +234,7 @@ if run_RQ3_2:
 
             best_im, best_y = None, None
             best_distance = float('inf')
-            for im, y in test_set.data:
+            for im, y in train_set.data:
                 # Calculate Euclidean distance
                 distance = torch.norm(tensor1 - im)
                 

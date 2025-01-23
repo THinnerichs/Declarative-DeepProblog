@@ -1,6 +1,6 @@
 # Declarative DeepProblog
 
-Declarative DeepProblog is a declarative extension to DeepProblog, DeepStochlog and all neuro-symbolic languages that rely on neural predicates. 
+Declarative DeepProblog is a declarative extension to DeepProblog and all neuro-symbolic languages that rely on neural predicates. 
 
 ## Setup:
 This problem relies on `deepproblog-dev` (available from `https://github.com/ML-KULeuven/deepproblog-dev`), which provides a complete setup guide.
@@ -19,4 +19,5 @@ Run `python distr_generative.py --h` to see all available options.
 Two things are necessary:
 1. Encoder and decoder networks that map your entities into latent space (and back), and
 2. The DPL model formulation. 
+
 
