@@ -17,7 +17,7 @@ python digit_class.py
 will run the vanilla DeepProblog program for these tasks.
 Our declarative extension takes approximately 2-3 times as long as the vanilla version. 
 
-For inference add the flag `--inference_only`, which will 1. load a model you trained previously, and 2. will use the inference DeepProblog program (without reconstruction error for images).
+For inference add the flag `--inference_only`, which will 1. load a model you trained previously, and 2. will use the inference version of the declarative DeepProblog program (i.e. without reconstruction error for images).
 
 Both commands will automatically generate images and write them to the `save_path` directory.
 
