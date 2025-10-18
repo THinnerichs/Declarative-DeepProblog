@@ -74,15 +74,8 @@ class Decoder(nn.Module):
     def forward(self, z):
         z = z[0].view(-1, self.z_dim)
 
-        # Generate noise input (like DDPM's x_t)
-        # x_t = torch.randn(z.size(0), 1, 28, 28, device=z.device)
-
         z_feat = self.latent_to_feature(z).view(-1, 64, 7, 7)
-        # z_upsampled = F.interpolate(z_feat, size=(28, 28), mode='bilinear')
         x = z_feat
-
-        # print("z_upsampled.shape:", z_upsampled.shape)
-        # x = torch.cat([x_t, z_upsampled], dim=1)
 
         h = self.decoder(x)
         h = h.view(-1, 1, 28, 28)

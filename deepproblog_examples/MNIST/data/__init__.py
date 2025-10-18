@@ -208,5 +208,8 @@ class MNISTOperator(Dataset, TorchDataset):
         expected_result = self.operator(ground_truth)
         return expected_result
 
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
     def __len__(self):
         return len(self.data)

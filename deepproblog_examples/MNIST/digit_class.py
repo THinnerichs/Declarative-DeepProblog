@@ -17,11 +17,11 @@ from sklearn.metrics import accuracy_score
 
 # local imports
 from data import MNIST, addition, MNIST_train, MNIST_test
-from network import MNIST_Net
+from networks.network import MNIST_Net
 
 N = 2
 
-name = "addition_{}_{}".format(method, N)
+# name = "addition_{}_{}".format(method, N)
 
 problem = "digit"
 # problem = "addition"
@@ -51,7 +51,7 @@ engine = ExactEngine(model, cache_memory=True)
 
 
 print("Training network ...")
-state_file = "state_dict.pkl"
+state_file = "saved_models/vanilla_DPL_state_dict.pkl"
 if os.path.isfile(state_file):
     with open(state_file, 'rb') as f:
         state_dict = pickle.load(f)
