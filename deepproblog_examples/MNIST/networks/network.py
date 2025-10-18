@@ -83,4 +83,5 @@ class MNIST_Net(nn.Module):
 
         if self.with_softmax:
             x = self.softmax(x)
+        print(x.max(), x.min())
         return x

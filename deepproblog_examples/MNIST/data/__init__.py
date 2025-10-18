@@ -36,6 +36,13 @@ def digits_to_number(digits: Iterable[int]) -> int:
         number += d
     return number
 
+def list2term(xs):
+    """Helper: Python list -> Prolog list term."""
+    t = Term("[]")
+    for x in reversed(xs):
+        t = Term(".", x, t)
+    return t
+
 
 class MNIST_Images(object):
     def __init__(self, subset):
@@ -213,3 +220,157 @@ class MNISTOperator(Dataset, TorchDataset):
 
     def __len__(self):
         return len(self.data)
+
+# ----------- Scallop datasets ---------------------
+
+class MNISTNot34Binary(Dataset):
+    """
+    Each example is a SINGLE image; label is 1 if digit ∉ {3,4}, else 0.
+    """
+    def __init__(self, dataset_name: str, seed: int | None = None):
+        super().__init__()
+        assert dataset_name in datasets
+        self.dataset_name = dataset_name
+        self.dataset = datasets[dataset_name]
+        self.indices = list(range(len(self.dataset)))
+        if seed is not None:
+            rng = random.Random(seed); rng.shuffle(self.indices)
+
+    def __len__(self): return len(self.indices)
+
+    def _get_label(self, i: int) -> int:
+        idx = self.indices[i]
+        _, digit = self.dataset[idx]
+        return 1 if digit not in (3,4) else 0
+
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
+    def to_query(self, i: int) -> Query:
+        idx = self.indices[i]
+        label = self._get_label(i)
+        # Build substitution: ImageVar -> tensor(dataset_name, idx)
+        img_var = Term("img")
+        subs = {img_var: Term("tensor", Term(self.dataset_name, Constant(idx)))}
+        # Query: not_3_or_4(img, Label)
+        return Query(Term("not_3_or_4", img_var, Constant(label)), subs)
+
+class MNISTLessThanBinary(Dataset):
+    """
+    Each example is a PAIR of single-digit images (x, y).
+    Label is 1 if digit(x) < digit(y), else 0.
+    Prolog: less_than(ImageX, ImageY, Label)
+    """
+    def __init__(self, dataset_name: str, seed: int | None = None):
+        super().__init__()
+        self.dataset_name = dataset_name
+        self.dataset = datasets[dataset_name]
+        idxs = list(range(len(self.dataset)))
+        rng = random.Random(seed) if seed is not None else random
+        rng.shuffle(idxs)
+        # build disjoint pairs (p0,p1), (p2,p3), ...
+        self.pairs: list[tuple[int,int]] = [
+            (idxs[i], idxs[i+1]) for i in range(0, len(idxs)-1, 2)
+        ]
+
+    def __len__(self): return len(self.pairs)
+
+    def _get_label(self, i: int) -> int:
+        a, b = self.pairs[i]
+        da = int(self.dataset[a][1]); db = int(self.dataset[b][1])
+        return 1 if da < db else 0
+
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
+    def to_query(self, i: int) -> Query:
+        a, b = self.pairs[i]
+        y = self._get_label(i)
+        XA, XB = Term("xa"), Term("xb")
+        subs = {
+            XA: Term("tensor", Term(self.dataset_name, Constant(a))),
+            XB: Term("tensor", Term(self.dataset_name, Constant(b))),
+        }
+        # less_than(xa, xb, Label)
+        return Query(Term("less_than", XA, XB, Constant(y)), subs)
+
+class MNISTCount3s(Dataset):
+    """
+    Each example is a LIST of k single-digit images; label is count of '3' digits.
+    """
+    def __init__(self, dataset_name: str, list_len: int = 5, seed: int | None = None):
+        super().__init__()
+        assert list_len >= 1
+        self.dataset_name = dataset_name
+        self.dataset = datasets[dataset_name]
+        self.list_len = list_len
+        idxs = list(range(len(self.dataset)))
+        if seed is not None:
+            rng = random.Random(seed); rng.shuffle(idxs)
+        else:
+            random.shuffle(idxs)
+        self.data: List[List[int]] = [idxs[i:i+list_len] for i in range(0, len(idxs)-list_len+1, list_len)]
+
+    def __len__(self): return len(self.data)
+
+    def _get_label(self, i: int) -> int:
+        idxs = self.data[i]
+        digits = [int(self.dataset[j][1]) for j in idxs]
+        return sum(1 for d in digits if d == 3)
+
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
+    def to_query(self, i: int) -> Query:
+        idxs = self.data[i]
+        label = self._get_label(i)
+        vars_ = []
+        subs = {}
+        for k, idx in enumerate(idxs):
+            v = Term(f"p{k}")
+            vars_.append(v)
+            subs[v] = Term("tensor", Term(self.dataset_name, Constant(idx)))
+        return Query(Term("count_digit_3", list2term(vars_), Constant(label)), subs)
+
+
+class MNISTCount34(Dataset):
+    """
+    Each example is a LIST of k single-digit images.
+    Label is the count of digits that are in {3,4}.
+    Prolog: count_3_or_4([Imgs], Count)
+    """
+    def __init__(self, dataset_name: str, list_len: int = 5, seed: int | None = None):
+        super().__init__()
+        assert list_len >= 1
+        self.dataset_name = dataset_name
+        self.dataset = datasets[dataset_name]
+        idxs = list(range(len(self.dataset)))
+        rng = random.Random(seed) if seed is not None else random
+        rng.shuffle(idxs)
+        self.data: list[list[int]] = [
+            idxs[i:i+list_len] for i in range(0, len(idxs)-list_len+1, list_len)
+        ]
+
+    def __len__(self): return len(self.data)
+
+    def _get_label(self, i: int) -> int:
+        idxs = self.data[i]
+        digits = [int(self.dataset[j][1]) for j in idxs]
+        return sum(1 for d in digits if d in (3, 4))
+
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
+    def to_query(self, i: int) -> Query:
+        idxs = self.data[i]
+        y = self._get_label(i)
+        vars_, subs = [], {}
+        for k, idx in enumerate(idxs):
+            v = Term(f"p{k}")
+            vars_.append(v)
+            subs[v] = Term("tensor", Term(self.dataset_name, Constant(idx)))
+        return Query(Term("count_3_or_4", list2term(vars_), Constant(y)), subs)
+
+
+
+
