@@ -158,7 +158,7 @@ if __name__ == "__main__":
         model.add_tensor_source('prototype_op', latent_op)
 
         print(f"Training HWF: N={N}, curriculum={curriculum}, ae={ae_type}, model={model_type}")
-        model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=10)
+        model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=30)
 
         # save everything
         with open(proto_digit_file, 'wb') as f:
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     # Example query (adapt to your program)
     # -----------------------
     # classify a single digit image to "9"
-    query = Query(Term('digit', Var('X'), Constant(9)))
+    query = Query(Term('detect_number', Var('X'), Constant(9)))
     answers = model.query(query, engine).result
     print(f"{answers=}")
 

@@ -16,9 +16,7 @@ class Encoder(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(16 * 11 * 11, 128),
             nn.ReLU(),
-            nn.Linear(128, 84),
-            nn.ReLU(),
-            nn.Linear(84, z_dim),
+            nn.Linear(128, z_dim),
             nn.Tanh(),
         )
 
@@ -45,14 +43,10 @@ class Decoder(nn.Module):
             Reshape((-1, 16, 11, 11)),
             nn.ReLU(),
             # 11 -> 22
-            nn.ConvTranspose2d(
-                16, 6, kernel_size=3, stride=2, padding=1, output_padding=1
-            ),
+            nn.ConvTranspose2d( 16, 6, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ReLU(),
             # 22 -> 45  (padding=0, output_padding=0)
-            nn.ConvTranspose2d(
-                6, 1, kernel_size=3, stride=2, padding=0, output_padding=0
-            ),
+            nn.ConvTranspose2d( 6, 1, kernel_size=3, stride=2, padding=0, output_padding=0),
             nn.Tanh(),
         )
 
