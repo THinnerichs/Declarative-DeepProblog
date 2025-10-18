@@ -11,9 +11,10 @@ Please install the `requirements.txt` afterwards.
 
 ## Running the experiments:
 
-The experiments are sorted by their respective model, i.e. `DeepProblog` and `DeepStochlog`. 
 To run the declarative extension, navigate to any of the examples and run `distr_generative.py`. 
 Run `python distr_generative.py --h` to see all available options.
+
+To run our experiments on MNIST, see the README in the MNIST dir.
 
 ## How to make your NeSy program declarative:
 Two things are necessary:
