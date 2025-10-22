@@ -10,7 +10,7 @@ from problog.logic import Term, list2term, Constant
 from torch.utils.data import Dataset as TorchDataset
 from torch import tensor
 
-from deepproblog.dataset import Dataset, QueryDataset
+from deepproblog.dataset import Dataset
 from deepproblog.query import Query
 
 _DATA_ROOT = Path(__file__).parent
@@ -372,5 +372,63 @@ class MNISTCount34(Dataset):
         return Query(Term("count_3_or_4", list2term(vars_), Constant(y)), subs)
 
 
+
+class _MNISTSumK(Dataset):
+    """
+    Each example is a LIST of exactly K single-digit images.
+    Label is the arithmetic sum of the digits.
+    Prolog: sumK([Imgs], Sum) where K in {2,3,4}
+    """
+    PREDICATE = None  # override in subclass: "sum2" | "sum3" | "sum4"
+
+    def __init__(self, dataset_name: str, K: int, seed: int | None = None):
+        super().__init__()
+        assert dataset_name in datasets
+        assert K in (2,3,4)
+        self.dataset_name = dataset_name
+        self.dataset = datasets[dataset_name]
+        self.K = K
+
+        idxs = list(range(len(self.dataset)))
+        rng = random.Random(seed) if seed is not None else random
+        rng.shuffle(idxs)
+        # slice into chunks of length K
+        self.data: list[list[int]] = [idxs[i:i+K] for i in range(0, len(idxs) - K + 1, K)]
+
+    def __len__(self): return len(self.data)
+
+    def _get_label(self, i: int) -> int:
+        idxs = self.data[i]
+        digits = [int(self.dataset[j][1]) for j in idxs]
+        return sum(digits)
+
+    def get_labels(self):
+        return tensor([self._get_label(i) for i in range(len(self))])
+
+    def to_query(self, i: int) -> Query:
+        idxs = self.data[i]
+        y = self._get_label(i)
+        vars_, subs = [], {}
+        for k, idx in enumerate(idxs):
+            v = Term(f"p{k}")
+            vars_.append(v)
+            subs[v] = Term("tensor", Term(self.dataset_name, Constant(idx)))
+        # sumK([p0,...,p{K-1}], y)
+        return Query(Term(self.PREDICATE, list2term(vars_), Constant(y)), subs)
+
+class MNISTSum2(_MNISTSumK):
+    PREDICATE = "sum2"
+    def __init__(self, dataset_name: str, seed: int | None = None):
+        super().__init__(dataset_name, K=2, seed=seed)
+
+class MNISTSum3(_MNISTSumK):
+    PREDICATE = "sum3"
+    def __init__(self, dataset_name: str, seed: int | None = None):
+        super().__init__(dataset_name, K=3, seed=seed)
+
+class MNISTSum4(_MNISTSumK):
+    PREDICATE = "sum4"
+    def __init__(self, dataset_name: str, seed: int | None = None):
+        super().__init__(dataset_name, K=4, seed=seed)
 
 

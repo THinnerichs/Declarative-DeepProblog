@@ -15,9 +15,10 @@ maplist(P, [H1|T1], [H2|T2]) :-
     maplist(P, T1, T2).
 
 map_encode_decode([], [], []).
-map_encode_decode([Image|Images], [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), map_encode_decode(Images, Prototypes, Probs).
+map_encode_decode([Image|Images], [Prot|Prototypes], [P|Probs]) :- encode_decode(Image, Prot, P), 
+map_encode_decode(Images, Prototypes, Probs).
 
-all_prob(Images,Classes, Dists) :- maplist(prototype,Classes,Prototypes), map_encode_decode(Images, Prototypes, Dists).
+all_prob(Images,Classes, Dists) :- maplist(prototype,Classes,Prototypes), map_encode_decode(Images, Prototypes, Dists). 
 
 encode_decode(Image, Prototype, P) :- encode(Image, Prototype, P1), decode(Prototype, Image, P2), mul(P1, P2, P). 
 

@@ -132,6 +132,10 @@ dmypy.json
 *.png
 *.dpl
 
+*.pkl
+*.torch
+*.th
+
 deepproblog_examples/MNIST/snapshot/*
 deepproblog_examples/MNIST/log/*
 deepproblog_examples/MNIST/data/MNIST/*
@@ -143,6 +147,10 @@ deepproblog_examples/HWF/data/original/*
 
 deepproblog_examples/MNIST/ae_latent_source_prototype.torch
 deepproblog_examples/MNIST/vae_latent_source_prototype.torch
+
+deepproblog_examples/WarcraftPathfinding/data/warcraft_shortest_path/12x12/*
+
+deepstochlog_examples/mathexpression/data/raw/*
 
 
 

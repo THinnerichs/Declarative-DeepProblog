@@ -36,7 +36,8 @@ class Encoder(nn.Module):
         return self.fc2(h)
 
     def forward(self, x):
-        x = x[0]
+        x = torch.stack(x, dim=0) 
+        
         # z = self.encoder(x.view(-1, 784))
         x = x.view(-1,1,28,28)
         z = self.convolutions(x).view(-1, 16*7*7)

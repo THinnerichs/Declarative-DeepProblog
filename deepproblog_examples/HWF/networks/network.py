@@ -38,10 +38,8 @@ class SymbolClassifier(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
-        if len(x) == 1:
-            x = x[0]
-        else:
-            raise ValueError("Encountered wrong shape for MNIST argument")
+        x = torch.stack(x, dim=0) 
+
         x = self.encoder(x)
         x = self.fc2(x)
         x = self.softmax(x)

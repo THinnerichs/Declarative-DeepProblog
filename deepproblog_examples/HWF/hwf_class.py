@@ -9,8 +9,6 @@ from torch.optim import Adam
 
 from deepproblog.dataset import Dataset
 from deepproblog.engines import ApproximateEngine, ExactEngine
-# from deepproblog.evaluate import get_confusion_matrix
-#from deepproblog.examples.MNIST.data import MNIST_train, MNIST_test, addition, MNIST
 from deepproblog.model import Model
 from deepproblog.network import Network
 from deepproblog.logger import VerboseLogger
@@ -20,12 +18,13 @@ from sklearn.metrics import accuracy_score
 # HWF bits
 from data import HWFDataset, hwf_images
 from networks.network import SymbolEncoder, SymbolClassifier
+from utils import *
 
 
 # -----------------------
 # Config
 # -----------------------
-N = 1                 # figure size
+N = 3                 # figure size
 curriculum = False    # True -> x <= N ; False -> x == N
 method = "exact"      # "exact" or "approximate"
 
@@ -63,7 +62,7 @@ net2.optimizer = torch.optim.Adam(net_ops.parameters(),    lr=3e-3)
 with open(program_path, "r") as f:
     program_string = f.read()
 
-logger = VerboseLogger(log_every=100)
+logger = VerboseLogger(log_every=10)
 model = Model(program_string, [net1, net2], logger=logger)
 
 # Engine
@@ -86,7 +85,7 @@ if os.path.isfile(state_file):
 else:
     model.add_tensor_source("hwf", hwf_images)
 
-    model.fit(dataset=train_set, engine=engine, batch_size=32, shuffle=True, stop_condition=25)
+    model.fit(dataset=train_set, engine=engine, batch_size=8, shuffle=True, stop_condition=25)
     # persist full model state (more robust than only .pth weights)
     state_dict = model.__getstate__()
     os.makedirs(os.path.dirname(state_file), exist_ok=True)
@@ -96,13 +95,16 @@ else:
 # Predict on validation 
 y_val_pred = model.predict(dataset=val_set, engine=engine)
 y_val_true = val_set.get_labels().numpy()
-val_acc = accuracy_score(y_val_true, y_val_pred)
+
+print(y_val_pred)
+print(y_val_true)
+val_acc = accuracy(y_val_true, y_val_pred)
 print("Val accuracy:\t", val_acc)
 
 # Predict on test
 # 2000 samples
 y_test_pred = model.predict(dataset=test_set, engine=engine)
 y_test_true = test_set.get_labels().numpy()
-test_acc = accuracy_score(y_test_true, y_test_pred)
+test_acc = accuracy(y_test_true, y_test_pred)
 print("Test accuracy:\t", test_acc)
 

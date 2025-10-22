@@ -1,363 +1,468 @@
+# run_mnist_prototypes.py
+import argparse
+import os
 import pickle
+import csv
+import time
 from collections.abc import Mapping
-from typing import Iterator
+from typing import Iterator, Tuple, Dict, Any, List
 
-
+import numpy as np
+import torch
+from sklearn.metrics import accuracy_score
 from problog.logic import Term, Var, Constant
 from torchvision.utils import save_image
-from json import dumps
 
-import torch
-
-from deepproblog.dataset import DataLoader, QueryDataset
-from deepproblog.engines import ApproximateEngine, ExactEngine
 from deepproblog.model import Model
 from deepproblog.network import Network
 from deepproblog.logger import VerboseLogger
+from deepproblog.engines import ExactEngine, ApproximateEngine
 
-from sklearn.metrics import accuracy_score
-
-import argparse
-import os
-import csv
-import time
-
-# local imports
+# local imports (unchanged)
 from data import MNIST, addition, MNIST_train, MNIST_test
+from deepproblog.query import Query
 
-def load_state(model, state_file):
-    with open(state_file, 'rb') as f:
-        state_dict = pickle.load(f)
-    model.__setstate__(state_dict)
 
-def save_state(model, state_file):
-    state_dict = model.__getstate__()
-    with open(state_file, 'wb') as f:
-        pickle.dump(state_dict, f)
+# -----------------------
+# Utilities
+# -----------------------
+def set_seed(seed: int | None):
+    if seed is None:
+        return
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
-method = "exact"
 
-save_path = ""
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Learning a declarative DeepProbLog? These are your options:")
+def save_pickle(obj, path: str):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump(obj, f)
 
-    # Add a named parameter
-    parser.add_argument("--ae_type", type=str, help="vae or ae?", default="vae")
-    parser.add_argument("--model_type", type=str, help="vae or diffusion?", default="vae")
-    parser.add_argument("--save_path", type=str, help="Path to save the output")
-    parser.add_argument("--problem", type=str, help="digit or addition task?", default="digit")
-    parser.add_argument('--inference_only', action=argparse.BooleanOptionalAction, help='Load pre-trained model and only do inference?', default=False)
-    parser.add_argument('--show_all', action=argparse.BooleanOptionalAction, help='Write all possible groundings?', default=False)
 
-    # Parse the command-line arguments
-    args = parser.parse_args()
+def load_pickle(path: str):
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
-    # Access the named parameter
-    save_path = args.save_path
-    ae_type = args.ae_type
-    model_type = args.model_type
-    inference_only = args.inference_only
-    show_all = args.show_all
-    problem = args.problem
 
-# Check arguments
-if ae_type not in ["ae", "vae"]:
-    raise ValueError("Invalid auto-encoder type selected.")
-if model_type not in ["vae", "diffusion"]:
-    raise ValueError("Invalid model type selected.")
-if problem == "digit":
-    name = f"digit_{model_type}_{method}"
-elif problem == "addition":
-    N = 1
-    name = f"addition_{model_type}_{method}_{N}"
-else:
-    raise ValueError
-
-output_path = f"output/{save_path}"
-output_path += "/" if not output_path.endswith("/") else ""
-
-print("Output path: ", output_path)
-
-# If it doesn't exist, create it (including parent directories if needed)
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
-
-# Create LatentSource
+# -----------------------
+# LatentSource for prototypes
+# -----------------------
 class LatentSource(Mapping[Term, torch.Tensor]):
-    def __iter__(self) -> Iterator[torch.Tensor]:
-        pass
+    """
+    Tensor source that returns a learnable latent vector per class index.
+    Accessed by terms like tensor(prototype, Constant(i)).
+    """
 
-    def __init__(self, nr_embeddings=10, embedding_size=10) -> None:
+    def __init__(self, nr_embeddings=10, embedding_size=12) -> None:
         super().__init__()
         self.data = torch.nn.Embedding(nr_embeddings, embedding_size)
 
     def __getitem__(self, index: tuple[Term]) -> torch.Tensor:
-        i = torch.LongTensor([int(index[0])])
-        tensor = self.data(i)[0]
-        # print(f"LatentSource:\t{i}\t{tensor}")
-        return tensor
+        # index = (Constant(i),) or something equivalent
+        i = torch.tensor([int(index[0])], dtype=torch.long)
+        return self.data(i)[0]
 
     def __len__(self) -> int:
-        return self.data.shape
+        return int(self.data.num_embeddings)
 
-embed_size = 12
-
-if problem == "digit":
-    train_set = MNIST("train")
-    test_set = MNIST("test")
-elif problem == "addition":
-    train_set = addition(N, "train")
-    test_set = addition(N, "test")
-
-if model_type == "vae":
-    from networks.VAE_networks import encoder, decoder
-    encoder_network, enc_opt = encoder(embed_size)
-    decoder_network, dec_opt = decoder(embed_size)
-elif model_type == "diffusion":
-    from networks.DDPM_networks import encoder, decoder 
-    encoder_network, enc_opt = encoder(embed_size)
-    decoder_network, dec_opt = decoder(embed_size)
-
-enc = Network(encoder_network, "encoder")
-enc.optimizer = enc_opt
-dec = Network(decoder_network, "decoder")
-dec.optimizer = dec_opt
-
-# load program
-prefix = "inference_" if inference_only else "" 
-
-path = f"models/{prefix}prototype_{ae_type}.pl"
-# path = f"models/match_{model_type}.pl" # for prototype_match version
-# path = f"models/n_prototype_{model_type}.pl" # for n_prototypes
-with open(path) as f:
-    program_string = f.read()
-
-logger = VerboseLogger(log_every=100)
-model_path = f"saved_models/{problem}_{model_type}_model_save_dict.pkl"
-
-if inference_only:
-    model = Model(program_string, [enc, dec], logger=logger)
-    engine = ExactEngine(model, cache_memory=True)
-
-    # Load pretrained model
-    with open(f'saved_models/{model_type}_latent_source_prototype.torch', 'rb') as f:
-        latent = pickle.load(f)
-    load_state(model, model_path)
-    model.add_tensor_source('prototype', latent)
-
-    model.add_tensor_source("train", MNIST_train)
-    model.add_tensor_source("test", MNIST_test)
-
-else:
-    model = Model(program_string, [enc, dec], logger=logger)
-    engine = ExactEngine(model, cache_memory=True)
-
-    model.add_tensor_source("train", MNIST_train)
-    model.add_tensor_source("test", MNIST_test)
-    
-    # Run training
-    if ae_type == "vae":
-        # Prototypes now have to hold mean + std, hence times 2
-        latent = LatentSource(embedding_size=embed_size*2, nr_embeddings=10) 
-    elif ae_type == "ae":
-        latent = LatentSource(embedding_size=embed_size)
-
-    num_epochs = 10
-    model.add_tensor_source('prototype', latent)
-    model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=num_epochs)
-
-    # prototype tensor source
-    with open(f'saved_models/{model_type}_latent_source_prototype.torch', 'wb') as f:
-        pickle.dump(model.tensor_sources["prototype"], f)
-    save_state(model, model_path)
-
-    y_pred = model.predict(dataset=test_set, engine=engine)
-    y_test = test_set.get_labels().numpy()
-
-    accuracy = accuracy_score(y_test, y_pred)
-    print("Test accuracy: \t", accuracy)
-
-    # Get accuracy to put for RQ1
-    filename = f'{name}_RQ1.csv'
-
-    with open(filename, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        # Append the data
-        writer.writerow([accuracy])
+    def __iter__(self) -> Iterator[torch.Tensor]:
+        for i in range(len(self)):
+            yield self.data.weight[i]
 
 
-# Run inference
-for param in latent.data.parameters():
-    param.requires_grad = False
-for param in model.networks['encoder'].parameters():
-    param.requires_grad = False
-for param in model.networks['decoder'].parameters():
-    param.requires_grad = False
+# -----------------------
+# CLI parse
+# -----------------------
+def parse_args():
+    p = argparse.ArgumentParser("Prototype-based MNIST DPL runner")
+    p.add_argument("--model_type", choices=["vae", "diffusion"], default="vae")
+    p.add_argument("--problem", choices=["digit", "addition", "not34", "count3", "count34", "lessthan", "sum2", "sum3", "sum4"], default="digit")
+    p.add_argument(
+        "--list_len",
+        type=int,
+        default=5,
+        help="List length for counting tasks (ignored for digit/addition/sum2/3/4 which are fixed)",
+    )
+    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--inference_only", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--show_all", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--save_path", type=str, default="mnist_proto")
+    p.add_argument("--engine", choices=["exact", "approximate"], default="exact")
 
-from deepproblog.query import Query
+    # RQ blocks
+    p.add_argument("--run_rq3_1", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--run_rq3_2", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--rq3_2_n", type=int, default=100, help="number of masked queries")
+    p.add_argument("--rq3_2_len", type=int, default=4, help="length of numbers for addition masking")
 
-# For RQ3.2:
-run_RQ3_2 = False
-if run_RQ3_2:
-    # Setup
-    import random
-    n = 100
-    number_length = 4
-    values_to_mask = 4
-    dataset = addition(number_length, "test", seed=42)
-    labels = train_set.get_labels()
-
-    # Computation
-    correct_queries = 0
-    for i in range(n):
-        # Get query from dataset
-        query = dataset.to_query(random.randint(1, len(dataset)))
-        sub_dict = query.substitution
-
-        # Mask `values_to_mask` elements
-        keys_to_mask = random.sample(list(sub_dict.keys()), values_to_mask)
-
-        masked_values = {key: sub_dict[key] for key in keys_to_mask}
-
-        masked_sub_dict = {
-            key: (Var(f"{key.functor.upper()}") if key in keys_to_mask else value)
-            for key, value in sub_dict.items()
-        }
-        query.substitution = masked_sub_dict
-
-        # Generate images
-        start_time = time.time()
-        answers = model.query(query, engine).result
-
-        groundings = {max(answers, key = lambda x: answers[x]):1.0}
-        
-        # Get labels of closest images
-        correct_preds = 0
-        for orig_key, grounding_key in zip(keys_to_mask, groundings):
-            tensor1_term, label = grounding_key.args
-            tensor1 = model.get_tensor(tensor1_term).detach()
-
-            best_im, best_y = None, None
-            best_distance = float('inf')
-            for im, y in train_set.data:
-                # Calculate Euclidean distance
-                distance = torch.norm(tensor1 - im)
-                
-                # Check if this image is closer than the ones checked before
-                if distance < best_distance:
-                    best_distance = distance
-                    best_im = im
-                    best_y = y
-
-            # Add truth to list
-            if best_y == label[masked_values[orig_key].value]:
-                correct_preds += 1
-        
-        if correct_preds == values_to_mask:
-            correct_queries += 1
-    # Compute accuracy
-    accuracy = correct_queries / n
-    filename = f'{name}_RQ3_2.csv'
-
-    with open(filename, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(accuracy)
+    return p.parse_args()
 
 
-# Here are some sample queries. Un-comment a query for it to be answered.
-# query = Query(Term('digit', Var('X'), Constant(6)))
-# query = Query(Term('digit', Var('X'), Var('Y')))
-# query = Query(Term('addition', Term('tensor', Term('train', Constant(7))), Var('Y'), Constant(8)))
-query = Query(Term('addition', Var('X'), Var('Y'), Constant(9)))
-# query = Query(Term('addition', Var('X'), Var('Y'), Var('Z')))
-
-answers = model.query(query, engine).result
-
-print(f"{answers=}")
-
-if show_all:
-    groundings = {k:v for k,v in answers.items()}
-else:
-    groundings = {max(answers, key = lambda x: answers[x]):1.0}
-
-run_RQ3_1 = True
-
-for key, prob in groundings.items():
-    print(f"{key.args=}")
-    if len(key.args) == 2:
-        # Digit case
-        tensor1_term, label = key.args
-        # probability = results[key]
-        
-        tensor1 = model.get_tensor(tensor1_term).detach()
-
-        if run_RQ3_1:
-            best_im, best_y = None, None
-            start_time = time.time()
-
-            best_distance = float('inf')
-        
-            for im, y in train_set.data:
-                # Calculate Euclidean distance
-                distance = torch.norm(tensor1 - im)
-                
-                # Check if this image is closer than the ones checked before
-                if distance < best_distance:
-                    best_distance = distance
-                    best_im = im
-                    best_y = y
-
-            print(f"This took {time.time() - start_time} seconds.")
-            print("Label:", label, "closest y:", best_y)
-            filename = f'{name}_RQ3_1.csv'
-
-            # Open the file in append mode
-            with open(filename, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([label, best_y])
-
-        image_path = output_path + '{}_term_1.png'.format(tensor1_term)
-        save_image(tensor1, image_path, value_range=(-1.0, 1.0))
-        print("Saved image to", image_path)
-    elif len(key.args) == 3:
-        # Addition case
-        tensor1_term, tensor2_term, label = key.args
-        
-        tensor1 = model.get_tensor(tensor1_term).detach()
-        tensor2 = model.get_tensor(tensor2_term).detach()
-
-        if run_RQ3_1:
-            predicted_labels = []
-            for i, tensor in enumerate([tensor1, tensor2]):
-                best_im, best_y = None, None
-                start_time = time.time()
-
-                best_distance = float('inf')
-            
-                for im, y in train_set.dataset:
-                    # Calculate Euclidean distance
-                    distance = torch.norm(tensor - im)
-                    
-                    # Check if this image is closer than the ones checked before
-                    if distance < best_distance:
-                        best_distance = distance
-                        best_im = im
-                        best_y = y
-
-                predicted_labels.append(best_y)
-
-            print("Sum:", label, "predicted sum:", sum(predicted_labels))
-            filename = f'{name}_RQ3_1.csv'
-
-            # Open the file in append mode
-            with open(filename, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([label, sum(predicted_labels)])
-
-        save_image(tensor1, output_path + '{}_term_1.png'.format(tensor1_term), value_range=(-1.0, 1.0))
-        save_image(tensor2, output_path + '{}_term_2.png'.format(tensor2_term), value_range=(-1.0, 1.0))
+# -----------------------
+# Build encoder/decoder
+# -----------------------
+def build_enc_dec(model_type: str, latent_dim: int = 12):
+    if model_type == "vae":
+        from networks.VAE_networks import encoder, decoder
     else:
-        raise ValueError("Unsupported number of arguments of result tensors.")
+        from networks.DDPM_networks import encoder, decoder
+    encoder_network, enc_opt = encoder(latent_dim)
+    decoder_network, dec_opt = decoder(latent_dim)
+    return encoder_network, enc_opt, decoder_network, dec_opt
 
 
+# -----------------------
+# Engine
+# -----------------------
+def build_engine(model: Model, name: str):
+    if name == "exact":
+        return ExactEngine(model, cache_memory=True)
+    else:
+        return ApproximateEngine(
+            model,
+            1,
+            ApproximateEngine.geometric_mean,
+            timeout=30,
+            ignore_timeout=True,
+            exploration=True,
+        )
 
+
+# -----------------------
+# RQ helpers
+# -----------------------
+def nearest_neighbor_label(tensor1: torch.Tensor, dataset) -> int:
+    """Return label of nearest training image to `tensor1` by L2 distance."""
+    best_y, best_dist = None, float("inf")
+    for im, y in dataset.data:
+        dist = torch.norm(tensor1 - im)
+        if dist < best_dist:
+            best_dist = dist
+            best_y = int(y)
+    return best_y
+
+
+def map_mask_positions(subs: Dict[Any, Any], keys_to_mask: list[Term]) -> Dict[Term, Term]:
+    """
+    Given original substitution dict (var -> tensor(term(...))) and the set of
+    vars we masked, build an ordered mapping from each masked var -> the slot it occupies.
+    """
+    # In DPL, subs keys are Term placeholders (e.g., p0_0, p0_1 ...), values are tensor terms.
+    # We simply keep the same variable names; the grounding key in query result will contain
+    # the newly generated tensors in the same structure.
+    return {k: k for k in keys_to_mask}
+
+
+def argmax_answer(answers: Dict[Term, float]) -> Term:
+    """Return the grounding with max probability."""
+    return max(answers, key=lambda k: answers[k])
+
+
+# -----------------------
+# Main
+# -----------------------
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+
+    # Names & paths
+    method = "exact" if args.engine == "exact" else "approximate"
+    name = f"{args.problem}_{args.model_type}_{method}"
+    out_dir = os.path.join("output", args.problem, args.save_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Data
+    if args.problem == "digit":
+        train_set = MNIST("train")
+        test_set = MNIST("test")
+    elif args.problem == "addition":
+        N = 1
+        train_set = addition(N, "train")
+        test_set = addition(N, "test")
+    elif args.problem == "not34":
+        train_set = MNISTNot34Binary("train", seed=args.seed)
+        test_set  = MNISTNot34Binary("test",  seed=args.seed + 1)
+    elif args.problem == "count3":
+        train_set = MNISTCount3s("train", list_len=args.list_len, seed=args.seed)
+        test_set  = MNISTCount3s("test",  list_len=args.list_len, seed=args.seed + 1)
+    elif args.problem == "count34":
+        train_set = MNISTCount34("train", list_len=args.list_len, seed=args.seed)
+        test_set  = MNISTCount34("test",  list_len=args.list_len, seed=args.seed + 1)
+    elif args.problem == "lessthan":
+        train_set = MNISTLessThanBinary("train", seed=args.seed)
+        test_set  = MNISTLessThanBinary("test",  seed=args.seed + 1)
+    elif args.problem == "sum2":
+        train_set = MNISTSum2("train", seed=args.seed)
+        test_set  = MNISTSum2("test",  seed=args.seed + 1)
+    elif args.problem == "sum3":
+        train_set = MNISTSum3("train", seed=args.seed)
+        test_set  = MNISTSum3("test",  seed=args.seed + 1)
+    elif args.problem == "sum4":
+        train_set = MNISTSum4("train", seed=args.seed)
+        test_set  = MNISTSum4("test",  seed=args.seed + 1)
+    else:
+        raise ValueError("Unknown task")
+
+    # Build networks
+    embed_size = 12
+    enc_net, enc_opt, dec_net, dec_opt = build_enc_dec(args.model_type, embed_size)
+    enc = Network(enc_net, "encoder"); enc.optimizer = enc_opt
+    dec = Network(dec_net, "decoder"); dec.optimizer = dec_opt
+
+    # Load program
+    prefix = "inference_" if args.inference_only else ""
+    suffix = "_mnistr" if args.problem in ["not34", "count3", "count34", "lessthan", "sum2", "sum3", "sum4"] else ""
+    program_path = f"models/{prefix}prototype_vae{suffix}.pl"
+    with open(program_path) as f:
+        program_string = f.read()
+
+    logger = VerboseLogger(log_every=100)
+    model = Model(program_string, [enc, dec], logger=logger)
+    engine = build_engine(model, args.engine)
+
+
+    # Latents
+    emb_dim = embed_size * 2
+    latent = LatentSource(embedding_size=emb_dim, nr_embeddings=10)
+    model.add_tensor_source("prototype", latent)
+
+    # State paths
+    model_state = f"saved_models/{args.problem}_{args.model_type}_model.pkl"
+    latent_state = f"saved_models/{args.problem}_{args.model_type}_latent_source_prototype.torch"
+
+    # Train or restore
+    if args.inference_only and os.path.isfile(model_state) and os.path.isfile(latent_state):
+        model.__setstate__(load_pickle(model_state))
+        loaded_latent = load_pickle(latent_state)
+        model.tensor_sources["prototype"] = loaded_latent
+        print(f"[restore] loaded model and prototype")
+
+        # Tensor sources for images + prototypes
+        model.add_tensor_source("train", MNIST_train)
+        model.add_tensor_source("test", MNIST_test)
+    else:
+        print(f"[train] epochs={args.epochs}, batch={args.batch_size}")
+
+        # Tensor sources for images + prototypes
+        model.add_tensor_source("train", MNIST_train)
+        model.add_tensor_source("test", MNIST_test)
+
+        model.fit(
+            dataset=train_set,
+            engine=engine,
+            batch_size=args.batch_size,
+            shuffle=True,
+            stop_condition=args.epochs,
+        )
+        save_pickle(model.__getstate__(), model_state)
+        save_pickle(model.tensor_sources["prototype"], latent_state)
+
+        # quick test acc
+        y_pred = model.predict(dataset=test_set, engine=engine)
+        y_true = test_set.get_labels().numpy()
+        acc = accuracy_score(y_true, y_pred)
+        print("Test accuracy:\t", acc)
+
+        # Optional CSV logging
+        csv_name = f'{name}_RQ1.csv'
+        with open(csv_name, "a", newline="") as f:
+            csv.writer(f).writerow([acc])
+
+    # Freeze for inference (as you did)
+    for p in model.networks["encoder"].parameters(): p.requires_grad = False
+    for p in model.networks["decoder"].parameters(): p.requires_grad = False
+    for p in latent.data.parameters(): p.requires_grad = False
+
+    # Demo query 
+    q = Query(Term("addition", Var("X"), Var("Y"), Constant(9)))
+    answers = model.query(q, engine).result
+    print("addition(_,_,9) MAP:\n", argmax_answer(answers))
+
+    # RQ3_1: NN label of generated tensor
+    if args.run_rq3_1:
+        # Expect digit(X, Y) OR addition(T1, T2, Z) depending on your program
+        # Below we show the digit case (most common)
+        print("[RQ3_1] running…")
+        # Build a digit query: digit(X, VarY) to produce one image X
+        q = Query(Term("digit", Var("X"), Var("Y")))
+        answers = model.query(q, engine).result
+        k = argmax_answer(answers)
+        # For 'digit' grounding: args = (tensor_term, Constant(label))
+        tensor_term, label = k.args
+        gen = model.get_tensor(tensor_term).detach()
+        best_y = nearest_neighbor_label(gen, train_set)
+        print("Label:", label, "closest y:", best_y)
+        save_image(gen, os.path.join(out_dir, f"{tensor_term}_rq3_1.png"), value_range=(-1.0,1.0))
+
+    # RQ3_2 (optional): mask K digits in two 4-digit numbers, regenerate
+    if args.run_rq3_2 and args.problem == "addition":
+        print("[RQ3_2] running…")
+        rq3_2_accuracy = run_rq3_2(
+            model,
+            engine,
+            number_len=args.rq3_2_len, 
+            values_to_mask=4,
+            n=args.rq3_2_n,
+            seed=args.seed,
+        )
+        print(f"[RQ3_2] generative accuracy: {rq3_2_accuracy:.4f}")
+
+
+# --- helpers ---------------------------------------------------------------
+
+def _collect_vars_in_order(term):
+    """
+    Traverse a DeepProbLog Term (list-structured for size>1) and collect the
+    placeholder variable names ('p0_0', ...) in left-to-right order.
+    Works for addition(list(list), list(list), Sum) structure.
+    """
+    ordered = []
+
+    def walk(t):
+        from deepproblog.query import list2term  # not strictly needed, but ok
+        if isinstance(t, Term):
+            # variables are Terms with functor like 'p0_0', 'p1_2', etc.
+            # we accept anything that starts with 'p' and has '_'
+            if t.arity == 0 and isinstance(t.functor, str) and t.functor.startswith("p") and "_" in t.functor:
+                ordered.append(t)
+            for a in t.args:
+                walk(a)
+
+    walk(term)
+    return ordered  # [p0_0, p0_1, ..., p1_0, p1_1, ...] in order
+
+
+def _collect_tensors_in_order(grounding_term):
+    """
+    Traverse a *grounded* answer Term and collect all tensor(...) terms
+    in left-to-right order. The order mirrors the placeholders order above.
+    """
+    tensors = []
+
+    def walk(t):
+        if isinstance(t, Term):
+            if t.functor == "tensor":
+                tensors.append(t)
+            for a in t.args:
+                walk(a)
+
+    walk(grounding_term)
+    return tensors  
+
+
+# Run RQ3_2 complex declarative queries.
+def run_rq3_2(model: Model, engine, number_len: int = 4, values_to_mask: int = 4, n: int = 100, seed: int = 42):
+    """
+    Construct an addition dataset with two numbers of length `number_len`,
+    mask exactly `values_to_mask` digit positions (across both operands),
+    regenerate with the model, and compute generative accuracy.
+    """
+    import random
+
+    rng = random.Random(seed)
+    ds = addition(number_len, "test", seed=seed)
+
+    ok = 0
+    for _ in range(n):
+        # 1) pick a sample and get its Query
+        idx = rng.randint(1, len(ds))           # MNIST datasets often use 1-based indices
+        query = ds.to_query(idx)                 # Query(Term('addition', <args...>), subs)
+
+        # 2) Get placeholders IN ORDER from the query structure itself
+        placeholders_ordered = _collect_vars_in_order(query.term)
+        if len(placeholders_ordered) != 2 * number_len:
+            # Fallback: if dataset differs, derive from substitution dict order (less safe)
+            placeholders_ordered = sorted(list(query.substitution.keys()), key=lambda t: str(t))
+
+        # 3) Choose which positions to mask (exactly `values_to_mask`)
+        mask_positions = rng.sample(range(len(placeholders_ordered)), k=values_to_mask)
+        masked_vars = [placeholders_ordered[i] for i in sorted(mask_positions)]
+
+        # 4) Save ground-truth tensors for the masked vars, then replace them with fresh logic vars
+        gt_terms_by_var = {v: query.substitution[v] for v in masked_vars}
+        new_subs = {}
+        for v in placeholders_ordered:
+            if v in masked_vars:
+                new_subs[v] = Var(str(v).upper())   # turn into fresh variable
+            else:
+                new_subs[v] = query.substitution[v]
+        # keep other (non-digit) bindings intact (e.g., sum), if present
+        for k, v in query.substitution.items():
+            if k not in new_subs:
+                new_subs[k] = v
+        query.substitution = new_subs
+
+        # 5) Query the model and take MAP grounding
+        answers = model.query(query, engine).result
+        if not answers:
+            continue
+        best = max(answers, key=lambda k: answers[k])
+
+        # 6) From the best grounding, collect ALL tensor(...) terms in-order
+        grounded_tensors_ordered = _collect_tensors_in_order(best)
+
+        # Sanity: grounded list should have same length as placeholders order
+        if len(grounded_tensors_ordered) < len(placeholders_ordered):
+            # Some programs may only materialize newly generated tensors.
+            # In that case, we try to map by going through masked slots first.
+            # Here we just skip this example to keep metric conservative.
+            continue
+
+        # 7) Compare NN labels (generated vs ground truth) at masked positions
+        all_correct = True
+        for pos in mask_positions:
+            var = placeholders_ordered[pos]
+            gen_term = grounded_tensors_ordered[pos]   # tensor(...) at that slot
+            gen_tensor = model.get_tensor(gen_term).detach()
+
+            gt_term = gt_terms_by_var[var]
+            gt_tensor = model.get_tensor(gt_term).detach()
+
+            nn_gen = nearest_neighbor_label(gen_tensor, ds)
+            nn_gt  = nearest_neighbor_label(gt_tensor, ds)
+
+            if nn_gen != nn_gt:
+                all_correct = False
+                break
+
+        if all_correct:
+            ok += 1
+
+    return ok / n if n > 0 else 0.0
+
+
+def extract_generated_terms_for_vars(best_key: Term, masked_vars: List[Term]) -> Dict[Term, Term]:
+    """
+    Try to pull, from the best grounding term, the tensor terms that correspond
+    to our masked variables. We rely on variable-name order.
+    This helper is intentionally conservative and should work with the typical
+    addition list structure you’re using.
+    """
+    # Flatten all tensor(...) terms in 'best_key' in order of appearance:
+    collected: List[Term] = []
+    def walk(t):
+        if isinstance(t, Term):
+            if t.functor == "tensor":
+                collected.append(t)
+            for a in t.args:
+                walk(a)
+
+    walk(best_key)
+
+    # Heuristic: the first len(masked_vars) tensor terms that *aren't* part of the unmasked inputs
+    # correspond to generated ones. Since we masked a whole operand of length K, grab K items.
+    k = len(masked_vars)
+    if len(collected) < k:
+        # fall back to the entire list (best effort)
+        k = len(collected)
+    mapping = {masked_vars[i]: collected[i] for i in range(k)}
+    return mapping
+
+
+if __name__ == "__main__":
+    main()

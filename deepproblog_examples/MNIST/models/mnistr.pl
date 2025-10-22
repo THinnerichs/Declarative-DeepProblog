@@ -25,6 +25,20 @@ is_3_or_4(I, 1) :- digit(I, 3).
 is_3_or_4(I, 1) :- digit(I, 4).
 is_3_or_4(I, 0) :- digit(I, D), D \== 3, D \== 4.
 
+% sum_list/2: sum of digit values in a list of images
+sum_list([], 0).
+sum_list([I|T], S) :-
+    digit(I, D),
+    sum_list(T, S0),
+    S is S0 + D.
+
+% Datasets will always provide lists of the right length.
+% We keep separate predicate names for clarity and metrics.
+sum2(Imgs, S) :- sum_list(Imgs, S).  % expects [I1, I2]
+sum3(Imgs, S) :- sum_list(Imgs, S).  % expects [I1, I2, I3]
+sum4(Imgs, S) :- sum_list(Imgs, S).  % expects [I1, I2, I3, I4]
+
+
 % 3) count_digit_3/2 : list of images -> number of 3s
 count_digit_3([], 0).
 count_digit_3([I|T], N) :-

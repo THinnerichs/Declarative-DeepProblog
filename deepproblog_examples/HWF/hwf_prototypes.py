@@ -14,10 +14,9 @@ from deepproblog.logger import VerboseLogger
 from deepproblog.query import Query
 
 from data import HWFDataset, hwf_images
+from utils import *
 
-# -----------------------
 # Utilities
-# -----------------------
 def load_state(model, state_file):
     with open(state_file, 'rb') as f:
         state_dict = pickle.load(f)
@@ -58,9 +57,7 @@ class LatentSource(Mapping[Term, torch.Tensor]):
         for i in range(len(self)):
             yield self.data.weight[i]
 
-# -----------------------
 # Args / config
-# -----------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HWF dual-prototype (digits & ops) with DeepProbLog")
     parser.add_argument("--ae_type", type=str, default="vae", choices=["ae", "vae"])
@@ -70,6 +67,9 @@ if __name__ == "__main__":
     parser.add_argument("--show_all", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--N", type=int, default=1, help="Figure size for HWF")
     parser.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--epochs", type=int, default=5, help="Training stop_condition")
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     ae_type         = args.ae_type
@@ -78,6 +78,9 @@ if __name__ == "__main__":
     show_all        = args.show_all
     N               = args.N
     curriculum      = args.curriculum
+    epochs          = args.epochs
+    batch_size      = args.batch_size
+    seed            = args.seed
 
     name = f"hwf_proto_{model_type}_N{N}"
     output_path = f"output/{args.save_path}".rstrip("/") + ("/" if args.save_path else "")
@@ -113,12 +116,8 @@ if __name__ == "__main__":
     enc = Network(enc_mod, "encoder"); enc.optimizer = enc_opt
     dec = Network(dec_mod, "decoder"); dec.optimizer = dec_opt
 
-    # -----------------------
     # Program & Model
-    # -----------------------
-    # This program is the one you pasted (two families: prototype_digit/op, encoder, decoder)
-    prefix = "inference_" if inference_only else ""
-    program_path = f"models/{prefix}prototype_hwf.pl"  # <- save your Prolog there
+    program_path = f"models/prototype_hwf.pl"
     with open(program_path) as f:
         program_string = f.read()
 
@@ -126,17 +125,12 @@ if __name__ == "__main__":
     model = Model(program_string, [enc, dec], logger=logger)
     engine = ExactEngine(model, cache_memory=True)
 
-    # Tensor sources: images + two prototype families
-    model.add_tensor_source("hwf", hwf_images)
-
     # Files
     model_state_file = f"saved_models/hwf_{model_type}.pkl"
     proto_digit_file = f"saved_models/{model_type}_latent_source_prototype_digit.torch"
     proto_op_file    = f"saved_models/{model_type}_latent_source_prototype_op.torch"
 
-    # -----------------------
     # Train / Load
-    # -----------------------
     if inference_only and os.path.exists(model_state_file):
         # restore model
         load_state(model, model_state_file)
@@ -150,6 +144,10 @@ if __name__ == "__main__":
         model.add_tensor_source('prototype_digit', latent_digit)
         model.add_tensor_source('prototype_op', latent_op)
 
+        # Tensor sources: images + two prototype families
+        model.add_tensor_source("hwf", hwf_images)
+
+
     else:
         latent_digit = LatentSource(nr_embeddings=10, embedding_size=embed_size*2)  # mean+std
         latent_op    = LatentSource(nr_embeddings=4,  embedding_size=embed_size*2)
@@ -157,8 +155,11 @@ if __name__ == "__main__":
         model.add_tensor_source('prototype_digit', latent_digit)
         model.add_tensor_source('prototype_op', latent_op)
 
+        # Tensor sources: images + two prototype families
+        model.add_tensor_source("hwf", hwf_images)
+
         print(f"Training HWF: N={N}, curriculum={curriculum}, ae={ae_type}, model={model_type}")
-        model.fit(dataset=train_set, engine=engine, batch_size=16, shuffle=True, stop_condition=30)
+        model.fit(dataset=train_set, engine=engine, batch_size=batch_size, shuffle=True, stop_condition=epochs)
 
         # save everything
         with open(proto_digit_file, 'wb') as f:
@@ -167,18 +168,15 @@ if __name__ == "__main__":
             pickle.dump(model.tensor_sources['prototype_op'], f)
         save_state(model, model_state_file)
 
-        # quick val/test (whatever your dataset’s labels represent)
-        y_val_pred = model.predict(dataset=val_set, engine=engine)
-        y_val_true = val_set.get_labels().numpy()
-        print("Val accuracy:\t", accuracy_score(y_val_true, y_val_pred))
+    # quick val/test (whatever your dataset’s labels represent)
+    y_val_pred = model.predict(dataset=val_set, engine=engine)
+    y_val_true = val_set.get_labels().numpy()
+    print("Val accuracy:\t", accuracy(y_val_true, y_val_pred))
 
-        y_test_pred = model.predict(dataset=test_set, engine=engine)
-        y_test_true = test_set.get_labels().numpy()
-        print("Test accuracy:\t", accuracy_score(y_test_true, y_test_pred))
+    y_test_pred = model.predict(dataset=test_set, engine=engine)
+    y_test_true = test_set.get_labels().numpy()
+    print("Test accuracy:\t", accuracy(y_test_true, y_test_pred))
 
-    # -----------------------
-    # Optional: freeze for pure inference
-    # -----------------------
     for p in model.networks['encoder'].parameters():
         p.requires_grad = False
     for p in model.networks['decoder'].parameters():
@@ -188,9 +186,7 @@ if __name__ == "__main__":
     for p in model.tensor_sources['prototype_op'].data.parameters():
         p.requires_grad = False
 
-    # -----------------------
     # Example query (adapt to your program)
-    # -----------------------
     # classify a single digit image to "9"
     query = Query(Term('detect_number', Var('X'), Constant(9)))
     answers = model.query(query, engine).result
