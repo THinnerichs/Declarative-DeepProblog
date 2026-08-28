@@ -4,6 +4,7 @@ import os
 import pickle
 import csv
 import time
+import random
 from collections.abc import Mapping
 from typing import Iterator, Tuple, Dict, Any, List
 
@@ -91,7 +92,7 @@ def parse_args():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--inference_only", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--show_all", action=argparse.BooleanOptionalAction, default=False)
-    p.add_argument("--save_path", type=str, default="mnist_proto")
+    p.add_argument("--save_path", type=str, default="")
     p.add_argument("--engine", choices=["exact", "approximate"], default="exact")
 
     # RQ blocks
@@ -136,6 +137,9 @@ def build_engine(model: Model, name: str):
 # -----------------------
 # RQ helpers
 # -----------------------
+def argmax_answer(answers):
+    return max(answers, key=lambda k: answers[k])
+
 def nearest_neighbor_label(tensor1: torch.Tensor, dataset) -> int:
     """Return label of nearest training image to `tensor1` by L2 distance."""
     best_y, best_dist = None, float("inf")
@@ -283,26 +287,22 @@ def main():
     answers = model.query(q, engine).result
     print("addition(_,_,9) MAP:\n", argmax_answer(answers))
 
-    # RQ3_1: NN label of generated tensor
+    # RQ3_1: Generative accuracy
     if args.run_rq3_1:
-        # Expect digit(X, Y) OR addition(T1, T2, Z) depending on your program
-        # Below we show the digit case (most common)
-        print("[RQ3_1] running…")
-        # Build a digit query: digit(X, VarY) to produce one image X
-        q = Query(Term("digit", Var("X"), Var("Y")))
-        answers = model.query(q, engine).result
-        k = argmax_answer(answers)
-        # For 'digit' grounding: args = (tensor_term, Constant(label))
-        tensor_term, label = k.args
-        gen = model.get_tensor(tensor_term).detach()
-        best_y = nearest_neighbor_label(gen, train_set)
-        print("Label:", label, "closest y:", best_y)
-        save_image(gen, os.path.join(out_dir, f"{tensor_term}_rq3_1.png"), value_range=(-1.0,1.0))
+        ut_dir = os.path.join(out_dir, "rq3_1_all")  # or your preferred dir
+        q_digit = Query(Term('digit', Var('X'), Var('Y')))
+        answers = model.query(q_digit, engine).result
+        save_all_groundings(answers, model=model, train_set=train_set, out_dir=out_dir, prefix="digit_all")
 
-    # RQ3_2 (optional): mask K digits in two 4-digit numbers, regenerate
+        # To enumerate *all* addition groundings, use all vars (X,Y,Z)
+        q_add = Query(Term('addition', Var('X'), Var('Y'), Var('Z')))
+        answers = model.query(q_add, engine).result
+        save_all_groundings(answers, model=model, train_set=train_set, out_dir=out_dir, prefix="addition_all")
+
+    # RQ3_2: mask K digits in two 4-digit numbers, regenerate
     if args.run_rq3_2 and args.problem == "addition":
         print("[RQ3_2] running…")
-        rq3_2_accuracy = run_rq3_2(
+        rq3_2_accuracy = run_multiadd4_rq3_2(
             model,
             engine,
             number_len=args.rq3_2_len, 
@@ -311,9 +311,101 @@ def main():
             seed=args.seed,
         )
         print(f"[RQ3_2] generative accuracy: {rq3_2_accuracy:.4f}")
+    elif args.run_rq3_2:
+        acc, successes = run_rq3_2(model, engine, test_set, max_groundings=100, seed=args.seed)
+        print(f"[RQ3_2] mask-all generative accuracy: {acc:.4f} over {len(successes)} / ≤100")
 
 
 # --- helpers ---------------------------------------------------------------
+def nearest_neighbor_label(img_tensor: torch.Tensor, dataset) -> int:
+    """Return label of nearest training image to `img_tensor` by L2 distance."""
+    best_y, best_d = None, float("inf")
+    for im, y in dataset.data:
+        d = torch.norm(img_tensor - im)
+        if d < best_d:
+            best_d = d
+            best_y = int(y)
+    return best_y
+
+def save_all_groundings(answers, *, model, train_set, out_dir, prefix="rq3_1",
+                        save_csv=True, compute_nn=True, value_range=(-1.0, 1.0)):
+    """
+    Save images for ALL groundings (sorted by probability descending).
+    Handles:
+      - digit:    digit(Tensor, Label)
+      - addition: addition(Tensor1, Tensor2, Sum)
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    # items = sorted(answers.items(), key=lambda kv: kv[1], reverse=True)
+    items = answers.items()
+
+    csv_rows = []
+    csv_path = os.path.join(out_dir, f"{prefix}.csv") if save_csv else None
+
+    for rank, (key, prob) in enumerate(items, start=1):
+        args = key.args
+
+        # ---- Digit case: (tensor_term, label) ----
+        if len(args) == 2:
+            tensor_term, label = args
+            img = model.get_tensor(tensor_term).detach()
+
+            # filenames
+            stem = f"digit_y{label}"
+            fname = os.path.join(out_dir, f"{stem}.png")
+
+            # optional NN label
+            nn_lab = nearest_neighbor_label(img, train_set) if compute_nn else None
+
+            save_image(img, fname, value_range=value_range)
+            print(f"[digit] rank={rank} p={prob:.4f} y={label} nearest label={nn_lab}-> {fname}")
+            if save_csv:
+                csv_rows.append(["digit", rank, float(prob), int(label), nn_lab if nn_lab is not None else "NA", fname])
+
+        # ---- Addition case: (tensor_term1, tensor_term2, sum_label) ----
+        elif len(args) == 3:
+            t1, t2, sum_label = args
+            img1 = model.get_tensor(t1).detach()
+            img2 = model.get_tensor(t2).detach()
+
+            stem = f"add_sum{sum_label}"
+            f1 = os.path.join(out_dir, f"{stem}_1.png")
+            f2 = os.path.join(out_dir, f"{stem}_2.png")
+
+            if compute_nn:
+                nn1 = nearest_neighbor_label(img1, train_set)
+                nn2 = nearest_neighbor_label(img2, train_set)
+            else:
+                nn1 = nn2 = None
+
+            save_image(img1, f1, value_range=value_range)
+            save_image(img2, f2, value_range=value_range)
+            print(f"[add] rank={rank} p={prob:.4f} sum={sum_label} -> {f1}, {f2}")
+            if save_csv:
+                csv_rows.append(["addition", rank, float(prob), int(sum_label),
+                                 nn1 if nn1 is not None else "NA",
+                                 nn2 if nn2 is not None else "NA", f1, f2])
+        else:
+            # other arities not supported here
+            continue
+
+    if save_csv and csv_rows:
+        header_digit    = ["task","rank","prob","label","nn_label","file"]
+        header_addition = ["task","rank","prob","sum","nn_label_1","nn_label_2","file1","file2"]
+        # write a unified CSV (heterogeneous rows are fine)
+        with open(csv_path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["NOTE: digit rows:", *header_digit])
+            for row in csv_rows:
+                if row[0] == "digit":
+                    w.writerow(["", *row])  # digit row
+            w.writerow([])
+            w.writerow(["NOTE: addition rows:", *header_addition])
+            for row in csv_rows:
+                if row[0] == "addition":
+                    w.writerow(["", *row])  # addition row
+        print(f"[csv] wrote {csv_path}")
+
 
 def _collect_vars_in_order(term):
     """
@@ -355,8 +447,95 @@ def _collect_tensors_in_order(grounding_term):
     return tensors  
 
 
-# Run RQ3_2 complex declarative queries.
-def run_rq3_2(model: Model, engine, number_len: int = 4, values_to_mask: int = 4, n: int = 100, seed: int = 42):
+def run_rq3_2(model, engine, test_set, *, max_groundings: int = 100, seed: int = 0):
+    """
+    Mask-all regeneration metric on the *actual* test_set.
+    For each sampled query:
+      - replace every image substitution with a fresh Var,
+      - query the model, take MAP grounding (top-1),
+      - for each image slot, compare NN(gen) vs NN(gt),
+      - a query counts as correct only if *all* slots match.
+
+    Returns: (accuracy, successes)
+      accuracy  : float in [0,1]
+      successes : list of test indices that were fully correct
+    """
+    rng = random.Random(seed)
+    num_items = len(test_set)
+    if num_items == 0:
+        return 0.0, []
+
+    # we’ll evaluate at most `max_groundings` queries (and 1 grounding per query)
+    max_queries = min(max_groundings, num_items)
+
+    successes = []
+    evaluated = 0
+    correct = 0
+
+    while evaluated < max_queries:
+        # pick an index (DeepProbLog datasets usually 1-based in to_query, but many of your
+        # datasets use standard 0-based __getitem__; we rely on the dataset API you already use)
+        idx = rng.randint(1, num_items)  # consistent with your addition dataset’s to_query
+
+        query = test_set.to_query(idx)
+
+        # 1) figure out placeholder order (digit slots) from the term,
+        #    fallback to sorted substitution keys if needed
+        placeholders = _collect_vars_in_order(query.term)
+        if not placeholders:
+            placeholders = sorted(list(query.substitution.keys()), key=lambda t: str(t))
+
+        # 2) store GT tensor terms (we’ll NN-label them later)
+        gt_terms_by_pos = [query.substitution[p] for p in placeholders]
+
+        # 3) mask *all* image slots: substitute each tensor term by a fresh Var
+        new_subs = {}
+        for p in placeholders:
+            new_subs[p] = Var(str(p).upper())
+        # keep other bindings (e.g., sums) intact
+        for k, v in query.substitution.items():
+            if k not in new_subs:
+                new_subs[k] = v
+        query.substitution = new_subs
+
+        # 4) query model; limit to top-1 grounding → we process 1 grounding per query
+        answers = model.query(query, engine).result
+        if not answers:
+            evaluated += 1
+            continue
+        best = argmax_answer(answers)
+
+        # 5) extract generated tensors in order and compare labels slot-wise
+        gen_terms = _collect_tensors_in_order(best)
+        if len(gen_terms) < len(placeholders):
+            # conservative skip if we can’t align slots
+            evaluated += 1
+            continue
+
+        all_ok = True
+        for pos in range(len(placeholders)):
+            gen_tensor = model.get_tensor(gen_terms[pos]).detach()
+            gt_tensor  = model.get_tensor(gt_terms_by_pos[pos]).detach()
+
+            nn_gen = nearest_neighbor_label(gen_tensor, test_set)
+            nn_gt  = nearest_neighbor_label(gt_tensor,  test_set)
+
+            if nn_gen != nn_gt:
+                all_ok = False
+                break
+
+        if all_ok:
+            correct += 1
+            successes.append(idx)
+
+        evaluated += 1
+
+    acc = correct / evaluated if evaluated > 0 else 0.0
+    return acc, successes
+
+
+# Run RQ3_2 multi_add complex declarative queries.
+def run_multiadd4_rq3_2(model: Model, engine, number_len: int = 4, values_to_mask: int = 4, n: int = 100, seed: int = 42):
     """
     Construct an addition dataset with two numbers of length `number_len`,
     mask exactly `values_to_mask` digit positions (across both operands),

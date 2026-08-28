@@ -194,53 +194,6 @@ class MathExprDataset(AbstractMathExprDataset, ContextualizedTermDataset):
         )
 
 
-
-class MathExprDataset(AbstractMathExprDataset, ContextualizedTermDataset):
-    def __init__(
-        self,
-        split: str = 'train',
-        num_samples=None,
-        random_seed=None,
-        expression_length=None,
-        expression_max_length=None,
-        allow_division=None,
-    ):
-        super().__init__(
-            split=split,
-            num_samples=num_samples,
-            random_seed=random_seed,
-            expression_length=expression_length,
-            expression_max_length=expression_max_length,
-            allow_division=allow_division,
-        )
-
-        # Initialize terms used to denote token sequence
-        max_length = (
-            expression_max_length
-            if expression_max_length
-            else mathexpression_dataset_max_seq_length
-        )
-        terms = [Term("img" + str(i + 1)) for i in range(max_length)]
-
-        self._img_token_sequences: Dict[int, typing.List[Term]] = dict()
-        for length in range(1, max_length + 1, 2):
-            self._img_token_sequences[length] = [terms[idx] for idx in range(length)]
-
-    def __getitem__(self, item):
-        if type(item) is slice:
-            return (self[i] for i in range(*item.indices(len(self))))
-        item_dict = self.dataset[item]
-        images = item_dict["image_sequence"]
-        expression_result = item_dict["res"]
-        context_dict = dict()
-        img_sequence = self._img_token_sequences[len(images)]
-        for idx, img_nr in enumerate(img_sequence):
-            context_dict[img_nr] = self.tensors[images[idx]]
-        return ContextualizedTerm(
-            context=Context(context_dict),
-            term=Term("expression", expression_result, term.List(*img_sequence)),
-        )
-
 def create_our_splits():
     import os
     from shutil import copy2

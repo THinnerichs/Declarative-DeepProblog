@@ -11,6 +11,7 @@ from deepproblog.dataset import Dataset
 from deepproblog.query import Query
 
 root = Path(__file__).parent
+IMG_SIZE = 45
 
 
 def create_split_train_val():
@@ -57,9 +58,12 @@ class HWFImages(object):
         if self.in_memory:
             return self.data[path]
         else:
-            image = Image.open(self.image_root / path)
+            image = Image.open(self.image_root / path).convert("L")
             if self.transform is not None:
                 image = transform(image)
+            if image.size != (IMG_SIZE, IMG_SIZE):
+                image = image.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
+            
             return image
 
     def __getitem__(self, item):

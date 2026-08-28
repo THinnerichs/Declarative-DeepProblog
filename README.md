@@ -1,24 +1,34 @@
-# Declarative DeepProblog
+# Declarative DeepProbLog
 
-Declarative DeepProblog is a declarative extension to DeepProblog and all neuro-symbolic languages that rely on neural predicates. 
+A declarative extension for neuro-symbolic languages built on neural predicates.
+A neural predicate can be called with its image argument unbound; resolution
+then grounds it by sampling and decoding a prototype, so one trained model
+answers classification and generation queries alike.
 
-## Setup:
-This problem relies on `deepproblog-dev` (available from `https://github.com/ML-KULeuven/deepproblog-dev`), which provides a complete setup guide.
-An implementation is also provided in the separate `deepproblog.zip`. Please follow the installation instructions.
-This also includes the added predicates needed.
+Each top-level directory holds one host system: the vanilla baseline and our
+declarative version of it.
 
-Please install the `requirements.txt` afterwards.
+| Directory | System | Vanilla | Declarative |
+|---|---|---|---|
+| `deepproblog_examples/` | DeepProbLog | `mnist_class.py`, `mnistr_class.py`, `hwf_class.py` | `mnist_prototypes.py`, `mnist_n_prototypes.py`, `hwf_prototypes.py` |
+| `deepstochlog_examples/` | DeepStochLog | `mathexpression.py`, `run_warcraft_pathfinding.py` | `mathexpression_prototype.py`, `warcraft_vae.py` |
+| `neurasp_examples/` | NeurASP | `run_mnist_neurasp.py` | `run_mnist_declarative_neurasp.py` |
+| `slash_examples/` | SLASH | `run_mnist_slash.py` | `run_mnist_declarative_slash.py` |
+| `deepseaproblog_examples/` | DeepSeaProbLog | `run_mnist_dsp.py` | — |
+| `vael_examples/` | VAEL | `run_mnist_vael.py` | — |
+| `scallop_examples/` | Scallop | `run_mnist_scallop.py` | — |
 
-## Running the experiments:
+Every runner accepts `--help`. See the README in each directory for its
+environment and commands.
 
-To run the declarative extension, navigate to any of the examples and run `distr_generative.py`. 
-Run `python distr_generative.py --h` to see all available options.
+## Setup
 
-To run our experiments on MNIST, see the README in the MNIST dir.
+DeepProbLog and DeepStochLog need `deepproblog-dev`
+(<https://github.com/ML-KULeuven/deepproblog-dev>), which ships the added
+predicates; follow its install guide, then:
 
-## How to make your NeSy program declarative:
-Two things are necessary:
-1. Encoder and decoder networks that map your entities into latent space (and back), and
-2. The DPL model formulation. 
+```bash
+pip install -r requirements.txt
+```
 
-
+The baselines each need their own environment; see their READMEs.

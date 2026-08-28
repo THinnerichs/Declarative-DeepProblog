@@ -155,3 +155,21 @@ deepstochlog_examples/mathexpression/data/raw/*
 
 
 
+
+# Run artifacts
+results/
+output/
+out/
+out_*/
+runs_*/
+logs_temp/
+snapshot/
+saved_models/
+saved_networks/
+figures_hwf/
+*.pt
+*.pth
+*.csv
+
+# Large Warcraft shortest-path arrays (regenerate/download locally)
+deepstochlog_examples/WarcraftPathfinding/data/warcraft_shortest_path/**/*.npy

@@ -2,174 +2,291 @@
 from typing import Optional
 from torch import nn
 import torch
+import math
 import torch.nn.functional as F
 
+IMG_SIZE = 45
 
-# ---------------- Encoder (parametric emb_dim = 12 by default) ----------------
+
+# ---------- encoder for 45x45 ----------
 class SymbolEncoder(nn.Module):
-    def __init__(self, emb_dim: int = 12):
+    """
+    45x45 grayscale -> latent vector (emb_dim).
+    Path: 45 -> 15 -> 5 feature map, then linear.
+    """
+    def __init__(self, emb_dim: int = 12, ch1=16, ch2=32, ch3=32, dropout=0.2):
         super().__init__()
         self.emb_dim = emb_dim
-        self.convolutions = nn.Sequential(
-            nn.Conv2d(1, 6, 3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),              # 45 -> 22
-            nn.Conv2d(6, 16, 3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),              # 22 -> 11
-            nn.Dropout2d(0.4),
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, ch1, 3, padding=1), nn.ELU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=3),          # 45 -> 15
+
+            nn.Conv2d(ch1, ch2, 3, padding=1), nn.ELU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=3),          # 15 -> 5
+
+            nn.Conv2d(ch2, ch3, 3, padding=1), nn.ELU(inplace=True),
+            nn.Dropout2d(dropout),
         )
-        self.mlp = nn.Sequential(
-            nn.Linear(16 * 11 * 11, emb_dim),
-            nn.ReLU(),
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(ch3 * 5 * 5, emb_dim),                # <-- 5x5 here
         )
 
-    def forward(self, x):
-        x = self.convolutions(x)          # [B,16,11,11]
-        x = torch.flatten(x, 1)           # [B,16*11*11]
-        x = self.mlp(x)                   # [B,emb_dim]
-        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.conv(x)                  # [B, ch3, 5, 5]
+        z = self.fc(x)                    # [B, emb_dim]
+        return z
 
 
-# ---------------- Decoder (to exactly 45x45, outputs in [-0.5, 0.5]) ----------------
-class Reshape(nn.Module):
-    def __init__(self, shape):
+# -------------------- decoder for 45x45 (logits) --------------------
+class ResBlock(nn.Module):
+    def __init__(self, ch):
         super().__init__()
-        self.shape = shape  # e.g., (-1, 32, 6, 6)
-
+        self.conv1 = nn.Conv2d(ch, ch, 3, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(ch, ch, 3, padding=1, bias=True)
+        self.act   = nn.ELU(inplace=True)
     def forward(self, x):
-        return x.view(*self.shape)
-
+        y = self.act(self.conv1(x))
+        y = self.conv2(y)
+        return self.act(x + y)
 
 class SymbolDecoder(nn.Module):
     """
-    ConvTranspose2d-based decoder for HWF images (1x45x45).
-    Latent z -> fc -> (32,6,6) -> deconv x3 -> (1,45,45) -> tanh scaled to [-0.5, 0.5].
-
-    Geometry:
-      6x6 --(k3,s2,p1,op=1)--> 12x12
-      12x12 --(k3,s2,p1,op=0)--> 23x23
-      23x23 --(k3,s2,p1,op=0)--> 45x45
+    z -> (c0,5,5) -> deconv x2 -> (1,45,45) logits.
+    5->15: (k=3, s=3, p=0)
+    15->45: (k=3, s=3, p=0)
     """
-    def __init__(self, emb_dim: int = 12):
+    def __init__(self, emb_dim: int = 12, c0=32, c1=24, c2=16):
         super().__init__()
-        self.emb_dim = emb_dim
-        self.fc = nn.Linear(emb_dim, 32 * 6 * 6)
+        self.fc  = nn.Linear(emb_dim, c0 * 5 * 5)
 
-        self.Decoder = nn.Sequential(
-            nn.Linear(emb_dim, 32 * 6 * 6),
-            Reshape((-1, 32, 6, 6)),
-            nn.ReLU(inplace=True),
+        self.d1  = nn.ConvTranspose2d(c0, c1, kernel_size=3, stride=3, padding=0)  # 5 -> 15
+        self.r1  = ResBlock(c1)
 
-            # 6 -> 12  (output_padding=1)
-            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU(inplace=True),
+        self.d2  = nn.ConvTranspose2d(c1, c2, kernel_size=3, stride=3, padding=0)  # 15 -> 45
+        self.r2  = ResBlock(c2)
 
-            # 12 -> 23 (output_padding=0)
-            nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=0),
-            nn.ReLU(inplace=True),
+        self.out = nn.Conv2d(c2, 1, kernel_size=1)  # logits
 
-            # 23 -> 45 (output_padding=0)
-            nn.ConvTranspose2d(8, 1, kernel_size=3, stride=2, padding=1, output_padding=0),
-
-            nn.Tanh(),   # -> [-1,1]
-        )
+        # init
+        nn.init.kaiming_normal_(self.fc.weight, nonlinearity='relu'); nn.init.zeros_(self.fc.bias)
+        for m in [self.d1, self.d2, self.out]:
+            nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+            if m.bias is not None: nn.init.zeros_(m.bias)
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        img = self.Decoder(z)          # [B,1,45,45] in [-1,1]
-        img = 0.5 * img                # scale to [-0.5, 0.5] to match your data
-        return img
+        x = self.fc(z).view(z.size(0), -1, 5, 5)           # (B,c0,5,5)
+        x = F.elu(self.d1(x), inplace=True); x = self.r1(x)  # (B,c1,15,15)
+        x = F.elu(self.d2(x), inplace=True); x = self.r2(x)  # (B,c2,45,45)
+        x = self.out(x)  # (B,1,45,45)
 
+        x = x.tanh() * 0.5
 
+        return x
 
 class ProtoSymbol(nn.Module):
     """
-    Probabilistic prototypes with explicit .prototypes (means).
-    - prototypes: [C,D] = μ_c
-    - logvar:     [C,D] = log σ_c^2
-    - latent score: Gaussian log-likelihood of z under class c
-    - recon score: MC average over samples z~N(μ_c, σ_c^2 I), decoded to image space
-    Outputs probabilities over classes.
+    Prototype classifier for DeepStochlog.
+
+    For each input image x:
+
+      1. Encode x -> z (embedding μ(x)).
+      2. For each class c, compute a latent Gaussian "likelihood":
+            log_latent_c = -β * 0.5 * Σ_d ((μ_d - e_cd)^2 / σ^2)
+      3. Decode each prototype e_c to an image and compute MSE to x in [0,1]:
+            mse_c = MSE(ink(x), ink(dec(e_c)))
+         then
+            log_rec_c = -α * mse_c
+      4. Compute a diversity prior from decoded prototype pixel variance:
+            var_c = Var(ink(dec(e_c)))
+            log_div_c = γ * (var_c - τ)
+         (flat / low-variance prototypes get negative log_div)
+      5. Combine:
+            log_score_c = log_latent_c + log_rec_c + w_div * log_div_c
+         and softmax over c to get p(c | x).
+
+    This keeps things simple, avoids over-normalizing, and lets the diversity
+    prior have a consistent effect across all inputs.
     """
+
     def __init__(
         self,
         encoder: nn.Module,
         n_classes: int,
         emb_dim: int = 12,
         decoder: Optional[nn.Module] = None,
-        n_mc_protos: int = 1,
-        epsilon_gate: float = 0.1,
-        init_gate_logits: tuple = (0.0, 0.0),
-        recon_weight: float = 1.0, 
+        recon_weight: float = 1.0,      # α: weight on MSE(x, dec(proto))
+        n_mc_protos: int = 1,           # kept for compatibility (used only in decode_proto_samples)
+        # kept for compatibility, but we use fixed variances here:
+        bound_variances: bool = True,
+        logvar_min: float = -4.0,
+        logvar_max: float =  2.0,
+        #
+        prior_std: float = 1.50,        # fixed std for p(z | c)
+        sample_std: float = 0.30,       # std for sampling around prototypes
+        beta_kl: float = 1.0,           # β: scale of latent distance term
+        diversity_w: float = 0.0,       # w_div: strength of diversity prior
+        min_ink_coverage: float = 0.02, # τ: variance threshold in diversity prior
+        coverage_w: float = 5.0,        # γ: scale for diversity prior
     ):
         super().__init__()
         self.encoder = encoder
-        self.emb_dim = emb_dim
         self.n_classes = n_classes
+        self.emb_dim = emb_dim
         self.decoder = decoder
-        self.n_mc = n_mc_protos
-        self.epsilon_gate = epsilon_gate
-        self.recon_scale = recon_weight 
-
-        # explicit prototypes + logvar (unchanged)
-        self.prototypes = nn.Parameter(torch.randn(n_classes, emb_dim) * 0.02)
-        self.logvar     = nn.Parameter(torch.full((n_classes, emb_dim), -1.0))
-
-        self.gate_logits = nn.Parameter(torch.tensor(init_gate_logits, dtype=torch.float))
-
-
-    # Gaussian log-likelihood of z under each class (averaged over dims)
-    def _latent_loglik(self, z: torch.Tensor) -> torch.Tensor:
-        inv_var = torch.exp(-self.logvar)                           # [C,D]
-        diff = z.unsqueeze(1) - self.prototypes.unsqueeze(0)        # [B,C,D]
-        ll = -0.5 * ((diff ** 2) * inv_var + self.logvar.unsqueeze(0)).mean(dim=-1)  # [B,C]
-        return ll
-
-    # Sample prototype latents for each class: [K,C,D] -> decode -> [K,C,1,45,45]
-    def _decode_proto_samples(self) -> Optional[torch.Tensor]:
         if self.decoder is None:
-            return None
-        K = self.n_mc
-        std = torch.exp(0.5 * self.logvar)                          # [C,D]
-        eps = torch.randn(K, self.n_classes, self.emb_dim, device=self.prototypes.device)
-        z = self.prototypes.unsqueeze(0) + eps * std.unsqueeze(0)   # [K,C,D]
-        z = z.view(K * self.n_classes, self.emb_dim)
-        imgs = self.decoder(z)                                       # [K*C,1,45,45] in [-0.5,0.5]
-        return imgs.view(K, self.n_classes, 1, 45, 45)
+            raise RuntimeError("ProtoSymbol requires a decoder for image-based terms.")
+
+        self.recon_weight = float(recon_weight)
+        self.n_mc = int(n_mc_protos)  # not used in forward, only in sampling
+
+        self.beta_kl = float(beta_kl)
+        self.diversity_w = float(diversity_w)
+        self.min_ink_coverage = float(min_ink_coverage)  # used as τ (variance threshold)
+        self.coverage_w = float(coverage_w)              # γ (scale in diversity prior)
+
+        # Prototype means (trainable): e_c
+        self.prototypes = nn.Parameter(torch.randn(n_classes, emb_dim) * 0.02)
+
+        # Fixed stds (non-trainable) in latent space
+        self.register_buffer(
+            "prior_logvar",
+            torch.full((1, emb_dim), math.log(prior_std ** 2), dtype=torch.float32),
+        )
+        self.register_buffer(
+            "sample_std",
+            torch.full((1, emb_dim), float(sample_std), dtype=torch.float32),
+        )
+
+        # Track usage (not directly used in forward, but we keep updating it)
+        self.register_buffer("usage_ema", torch.full((n_classes,), 1.0 / n_classes))
+        self.usage_momentum = 0.99
+
+    # -------- helpers --------
 
     @staticmethod
-    def _standardize(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
-        m, s = x.mean(), x.std().clamp_min(eps)
-        return (x - m) / s
+    def _to_ink01(img: torch.Tensor) -> torch.Tensor:
+        """
+        Map images in [-0.5, 0.5] (white≈+0.5, ink≈-0.5) to an ink-positive [0,1] scale.
+        """
+        return (0.5 - img).clamp(0.0, 1.0)
 
-    def _mix_weights(self):
-        w = F.softmax(self.gate_logits, dim=0)    # [2]
-        eps = self.epsilon_gate
-        w_lat = eps + (1 - 2 * eps) * w[0]
-        w_rec = 1.0 - w_lat
-        return w_lat, w_rec
+    @torch.no_grad()
+    def _decode_proto_means(self) -> torch.Tensor:
+        """
+        Decode the MEAN prototypes.
+
+        Returns:
+            imgs: [C,1,H,W] in the same range as decoder output (assumed [-0.5,0.5]).
+        """
+        imgs = self.decoder(self.prototypes)  # [C,1,H,W]
+        return imgs
+
+    # -------- core forward --------
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # latent term
-        z = self.encoder(x)               # [B,D]
-        s_lat = self._standardize(self._latent_loglik(z))  # [B,C]
+        """
+        x: [B,1,H,W] in [-0.5,0.5]
+        returns:
+            probs: [B,C] class distribution
+        """
+        B, _, H, W = x.shape
+        C, D = self.n_classes, self.emb_dim
+        device = x.device
+        dtype = x.dtype
+        eps = 1e-12
 
-        proto_imgs = self._decode_proto_samples()
-        if proto_imgs is not None:
-            x_ = x.unsqueeze(0).unsqueeze(2)                 # [1,B,1,1,45,45]
-            diff = x_ - proto_imgs.unsqueeze(1)              # [K,B,C,1,45,45]
-            mse = (diff ** 2).mean(dim=(0, 3, 4, 5))         # [B,C]
-            s_rec = self._standardize(-mse)
+        # --------------------------------------------------------
+        # 1) Latent term: Gaussian "likelihood" under each proto
+        # --------------------------------------------------------
+        z = self.encoder(x)  # [B,D] or (mu, ...)
+        if isinstance(z, (tuple, list)):
+            mu = z[0]
         else:
-            s_rec = torch.zeros_like(s_lat)
+            mu = z  # [B,D]
 
-        w_lat, w_rec = self._mix_weights()
-        logits = w_lat * s_lat + w_rec * (self.recon_scale * s_rec)  # <--- UPDATED
-        return F.softmax(logits, dim=-1)
+        prior_var = self.prior_logvar.exp()                # [1,D]
+        diff = mu.unsqueeze(1) - self.prototypes.unsqueeze(0)  # [B,C,D]
+        energy = 0.5 * (diff.pow(2) / prior_var).sum(dim=-1)   # [B,C]
 
-    # convenience: decode mean prototypes once (no sampling)
+        # log_latent_c ∝ -β * energy_c
+        log_latent = -self.beta_kl * energy                 # [B,C]
+
+        # --------------------------------------------------------
+        # 2) Reconstruction term: MSE in ink space ∈ [0,1]
+        # --------------------------------------------------------
+        proto_imgs = self._decode_proto_means()             # [C,1,H,W], [-0.5,0.5]
+
+        x01 = self._to_ink01(x)                             # [B,1,H,W]
+        p01 = self._to_ink01(proto_imgs)                    # [C,1,H,W]
+
+        x_bc = x01.unsqueeze(1).expand(-1, C, -1, -1, -1)   # [B,C,1,H,W]
+        p_bc = p01.unsqueeze(0).expand(B, -1, -1, -1, -1)   # [B,C,1,H,W]
+
+        mse = (x_bc - p_bc).pow(2).mean(dim=(2, 3, 4))      # [B,C], theoretically ∈ [0,1]
+        mse = mse.clamp(0.0, 1.0)
+
+        # log_rec_c ∝ -α * mse_c
+        log_rec = -self.recon_weight * mse                  # [B,C]
+
+        # --------------------------------------------------------
+        # 3) Diversity prior: encourage non-flat prototypes
+        # --------------------------------------------------------
+        proto_flat = p01.view(C, -1)                        # [C, H*W] in [0,1]
+        pixel_var = proto_flat.var(dim=1)                   # [C]
+
+        tau = float(self.min_ink_coverage)                  # variance threshold
+        gamma = float(self.coverage_w)                      # scale
+
+        # log_div_c = γ * (var_c - τ)
+        log_div = gamma * (pixel_var - tau)                 # [C]
+
+        if self.diversity_w <= 0.0:
+            # no diversity prior
+            log_div = torch.zeros_like(log_div)
+        else:
+            # scale overall strength
+            log_div = self.diversity_w * log_div            # [C]
+
+        log_div = log_div.to(device=device, dtype=dtype).unsqueeze(0)  # [1,C]
+
+        # --------------------------------------------------------
+        # 4) Combine in log-space and softmax
+        # --------------------------------------------------------
+        # log_score_c(x) = log_latent_c + log_rec_c + log_div_c
+        log_score = log_latent + log_rec + log_div          # [B,C]
+
+        # Numerical stability: subtract per-sample max
+        log_score = log_score - log_score.max(dim=1, keepdim=True)[0]
+        score = torch.exp(log_score)                        # [B,C]
+        probs = score / (score.sum(dim=1, keepdim=True) + eps)
+
+        # --------------------------------------------------------
+        # 5) Update usage_ema (just for bookkeeping / inspection)
+        # --------------------------------------------------------
+        with torch.no_grad():
+            m = float(self.usage_momentum)
+            self.usage_ema.mul_(m).add_((1.0 - m) * probs.mean(dim=0))
+
+        return probs
+
+    # -------- sampling utility for grids / inspection --------
+
     @torch.no_grad()
-    def decode_mean_prototypes(self) -> torch.Tensor:
+    def decode_proto_samples(self, n_per_class: int = 1) -> torch.Tensor:
+        """
+        Sample around each prototype in latent space and decode.
+
+        Returns:
+            imgs: [C * n_per_class, 1, H, W] in [-0.5, 0.5].
+        """
         if self.decoder is None:
-            raise RuntimeError("ProtoSymbol.decoder is None; cannot decode prototypes.")
-        return self.decoder(self.prototypes)  # [C,1,45,45] in [-0.5,0.5]
+            raise RuntimeError("decoder=None; cannot decode.")
+        C, D = self.n_classes, self.emb_dim
+        e = self.prototypes.unsqueeze(1).expand(C, n_per_class, D)  # [C,n_per,D]
+        eps = torch.randn_like(e)
+        z = e + eps * self.sample_std                               # [C,n_per,D]
+        z = z.reshape(C * n_per_class, D)
+        imgs = self.decoder(z)                                      # [C*n_per,1,H,W]
+        return imgs
+

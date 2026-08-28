@@ -1,0 +1,25 @@
+{
+    "data_dir": "/is/rg/al/Data/comb_gradient/warcraft_shortest_path_oneskin/12x12",
+    "dataset_params": {
+        "enforce_uniqueness": false,
+        "flatten_path_len_histogram": true,
+        "grid_dim": 12,
+        "neighbourhood_fn": "8-grid",
+        "num_skins": 1,
+        "pixels_per_cell": 8,
+        "test_set_params": {
+            "num_examples": 1000
+        },
+        "train_set_params": {
+            "num_examples": 10000
+        },
+        "val_set_params": {
+            "num_examples": 1000
+        }
+    },
+    "num_cpus": 8,
+    "problem_type": "warcraft_shortest_path",
+    "ray_params": {},
+    "seed": 2019,
+    "use_ray": true
+}
